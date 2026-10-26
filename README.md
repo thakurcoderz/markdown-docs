@@ -4,6 +4,16 @@ A local macOS app for reading and editing Markdown docs, with comment threads an
 
 Built with [Tauri v2](https://tauri.app) (Rust backend, native WKWebView) and React + [shadcn/ui](https://ui.shadcn.com).
 
+## Download
+
+Get the latest **`.dmg`** from [Releases](https://github.com/thakurcoderz/markdown-docs/releases/latest). It's a universal build for Apple Silicon and Intel Macs on macOS 14 or later.
+
+The app isn't signed yet, so on first launch right-click it → **Open**, or run:
+
+```sh
+xattr -dr com.apple.quarantine "/Applications/Markdown Docs.app"
+```
+
 ## Features
 
 - **Docs without folder wrangling** — create, rename and delete docs from the app. Name a doc `team/standup` and it's grouped under "team" automatically.
