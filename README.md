@@ -58,6 +58,16 @@ Outputs:
 
 The build is unsigned. On first launch, right-click the app → **Open** (or allow it in System Settings → Privacy & Security).
 
+### Publish a release
+
+Releases are built by GitHub Actions (`.github/workflows/release.yml`). Bump `version` in `src-tauri/tauri.conf.json`, commit, then push a matching tag:
+
+```sh
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+The workflow runs the tests, builds a universal `.dmg` and `.app.zip`, and publishes a GitHub Release with checksums and generated notes. **Actions → Release → Run workflow** does a dry run that uploads the builds as workflow artifacts without publishing. Adding the `APPLE_*` secrets listed at the top of the workflow turns on code signing and notarization.
+
 ### Run the tests
 
 ```sh

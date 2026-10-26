@@ -1,0 +1,101 @@
+# Builds a universal macOS app and publishes it as a GitHub Release.
+#
+# Release:  bump "version" in src-tauri/tauri.conf.json, commit, then
+#           git tag v<version> && git push origin v<version>
+# Dry run:  Actions → Release → Run workflow (builds + uploads artifacts, publishes nothing)
+#
+# Signing/notarization turns on automatically when these repository secrets exist:
+#   APPLE_CERTIFICATE (base64 .p12), APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY,
+#   APPLE_ID, APPLE_PASSWORD (app-specific password), APPLE_TEAM_ID
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  release:
+    runs-on: macos-latest
+    env:
+      IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Read app version
+        id: version
+        run: |
+          v=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if [ "$IS_TAG" = "true" ] && [ "$GITHUB_REF_NAME" != "v$v" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match the app version ($v) in src-tauri/tauri.conf.json"
+            exit 1
+          fi
+
+      - run: npm ci
+
+      - name: Test
+        run: |
+          npm test
+          cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Build universal app
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # Missing secrets arrive as empty strings; unset them so Tauri builds unsigned instead of failing.
+          for k in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!k}" ]; then unset "$k"; fi
+          done
+          npx tauri build --target universal-apple-darwin
+
+      - name: Package
+        run: |
+          v=${{ steps.version.outputs.version }}
+          b=src-tauri/target/universal-apple-darwin/release/bundle
+          mkdir -p out
+          cp "$b/dmg/Markdown Docs_${v}_universal.dmg" "out/Markdown-Docs_${v}_universal.dmg"
+          ditto -c -k --keepParent "$b/macos/Markdown Docs.app" "out/Markdown-Docs_${v}_universal.app.zip"
+          lipo -archs "$b/macos/Markdown Docs.app/Contents/MacOS/markdown-docs"
+          (cd out && shasum -a 256 * > SHA256SUMS.txt && cat SHA256SUMS.txt)
+
+      - name: Upload artifacts (dry run)
+        if: env.IS_TAG != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: markdown-docs-${{ steps.version.outputs.version }}
+          path: out/*
+
+      - name: Publish release
+        if: env.IS_TAG == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" out/* \
+            --title "Markdown Docs ${{ steps.version.outputs.version }}" \
+            --notes-file .github/release-notes.md \
+            --generate-notes
