@@ -1,5 +1,7 @@
 # Markdown Docs
 
+[![CI](https://github.com/thakurcoderz/markdown-docs/actions/workflows/ci.yml/badge.svg)](https://github.com/thakurcoderz/markdown-docs/actions/workflows/ci.yml)
+
 A local macOS app for reading and editing Markdown docs, with comment threads anchored to the text — like Google Docs comments, but for plain `.md` files on your machine.
 
 Built with [Tauri v2](https://tauri.app) (Rust backend, native WKWebView) and React + [shadcn/ui](https://ui.shadcn.com).
@@ -69,6 +71,8 @@ git tag v0.2.0 && git push origin v0.2.0
 The workflow runs the tests, builds a universal `.dmg` and `.app.zip`, and publishes a GitHub Release with checksums and generated notes. **Actions → Release → Run workflow** does a dry run that uploads the builds as workflow artifacts without publishing. Adding the `APPLE_*` secrets listed at the top of the workflow turns on code signing and notarization.
 
 ### Run the tests
+
+CI (`.github/workflows/ci.yml`) runs these on every branch push.
 
 ```sh
 npm test                    # frontend (Vitest)
