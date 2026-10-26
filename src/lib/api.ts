@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core"
 
 export type TreeNode = { name: string; id: string; children: TreeNode[] | null }
+export type Hit = { id: string; lines: string[] }
 export type Doc = { content: string; mtime: string }
 export type Comment = {
   id: number
@@ -23,6 +24,7 @@ export const api = {
   createDoc: (id: string) => invoke<string>("create_doc", { id }),
   renameDoc: (from: string, to: string) => invoke<string>("rename_doc", { from, to }),
   deleteDoc: (id: string) => invoke<void>("delete_doc", { id }),
+  search: (query: string) => invoke<Hit[]>("search", { query }),
   render: (md: string) => invoke<string>("render", { md }),
   comments: (doc: string) => invoke<Comment[]>("list_comments", { doc }),
   addComment: (doc: string, parentId: number | null, quote: string | null, quoteStart: number | null, body: string) =>

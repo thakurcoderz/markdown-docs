@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { listen } from "@tauri-apps/api/event"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { ask } from "@tauri-apps/plugin-dialog"
@@ -10,14 +10,20 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { CommentsPanel, type Compose } from "@/components/CommentsPanel"
+import { Editor } from "@/components/Editor"
 import { NameDialog, type NameRequest } from "@/components/NameDialog"
+import { SearchDialog } from "@/components/SearchDialog"
+import { SettingsPage } from "@/components/SettingsPage"
 import { Sidebar } from "@/components/Sidebar"
 import { api, type Comment, type Doc, type TreeNode } from "@/lib/api"
-import { anchor, enhance, headingEls, readHeadings, selectionAnchor, type Heading } from "@/lib/preview"
+import { docLink } from "@/lib/links"
+import { anchor, enhance, findText, headingEls, readHeadings, selectionAnchor, type Heading } from "@/lib/preview"
+import { applySettings, DEFAULTS, loadSettings, saveSettings, type Settings } from "@/lib/settings"
 import { cn } from "@/lib/utils"
 
-type Mode = "preview" | "markdown"
+type Mode = "preview" | "split" | "markdown"
 const err = (e: unknown) => toast.error(String(e))
+const AUTOSAVE_MS = 1000
 
 export default function App() {
   const [tree, setTree] = useState<TreeNode[]>([])
@@ -35,12 +41,18 @@ export default function App() {
   const [missing, setMissing] = useState<Set<number>>(new Set())
   const [tab, setTab] = useState("toc")
   const [nameReq, setNameReq] = useState<NameRequest | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settings, setSettings] = useState<Settings>(DEFAULTS)
   const [fab, setFab] = useState<{ x: number; y: number } | null>(null)
+  // Set when an autosave fails or an overwrite is declined; ⌘S / the Save button retries and clears it.
+  const [autosavePaused, setAutosavePaused] = useState(false)
 
   const previewRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const editorRef = useRef<HTMLTextAreaElement>(null)
   const renderWaiters = useRef<(() => void)[]>([])
+  const rootDir = useRef("")
+  const saving = useRef(false)
   const dirty = !!doc && !!disk && draft !== disk.content
 
   // Async flows (dialogs, menu events) read the latest state through this ref, never through closures.
@@ -53,7 +65,8 @@ export default function App() {
     const el = previewRef.current!
     let live = true
     el.innerHTML = html // sanitized by ammonia in Rust
-    enhance(el, () => live).then(() => {
+    CSS.highlights?.delete("search")
+    enhance(el, () => live, S.current.doc, rootDir.current).then(() => {
       if (!live) return
       setHeadings(readHeadings(el))
       setRenderTick((t) => t + 1)
@@ -73,6 +86,16 @@ export default function App() {
       setHtml(next)
     })
 
+  // Split view: live preview of the unsaved draft.
+  useEffect(() => {
+    if (mode !== "split") return
+    const t = setTimeout(async () => {
+      const h = await api.render(S.current.draft)
+      if (S.current.mode === "split") showHtml(h)
+    }, 200)
+    return () => clearTimeout(t)
+  }, [draft, mode])
+
   // ---------- Doc actions ----------
 
   const refreshTree = () => api.tree().then(setTree, err)
@@ -84,13 +107,16 @@ export default function App() {
   const confirmDiscard = async () =>
     !S.current.dirty || ask("You have unsaved changes. Discard them?", { title: "Unsaved changes", kind: "warning", okLabel: "Discard", cancelLabel: "Cancel" })
 
-  const openDoc = async (id: string, startMode: Mode = "preview") => {
+  const openDoc = async (id: string, startMode?: Mode) => {
+    setSettingsOpen(false)
     if (id === S.current.doc || !(await confirmDiscard())) return
     let d: Doc
     try { d = await api.readDoc(id) } catch (e) { return err(e) }
-    setDoc(id); setDisk(d); setDraft(d.content); setMode(startMode)
-    setActive(null); setCompose(null); setFab(null)
-    S.current = { ...S.current, doc: id, disk: d, draft: d.content, mode: startMode, dirty: false }
+    // Keep the current editing mode when hopping between docs, unless a mode is requested.
+    const m = startMode ?? S.current.mode
+    setDoc(id); setDisk(d); setDraft(d.content); setMode(m)
+    setActive(null); setCompose(null); setFab(null); setAutosavePaused(false)
+    S.current = { ...S.current, doc: id, disk: d, draft: d.content, mode: m, dirty: false }
     await loadComments(id)
     await showHtml(await api.render(d.content))
     scrollRef.current?.scrollTo(0, 0)
@@ -109,7 +135,7 @@ export default function App() {
     if (d.mtime === disk.mtime || dirty || S.current.doc !== doc) return // unsaved edits win; save's conflict check covers them
     setDisk(d); setDraft(d.content)
     S.current = { ...S.current, disk: d, draft: d.content }
-    if (S.current.mode === "preview") await showHtml(await api.render(d.content))
+    if (S.current.mode !== "markdown") await showHtml(await api.render(d.content))
   }
 
   const closeDoc = () => {
@@ -117,9 +143,12 @@ export default function App() {
     S.current = { ...S.current, doc: null, disk: null, draft: "", dirty: false }
   }
 
-  const save = async () => {
+  const save = async (auto = false) => {
     const { doc, disk, draft, dirty } = S.current
     if (!dirty || !doc || !disk) return true
+    if (saving.current) return false
+    if (!auto) setAutosavePaused(false)
+    saving.current = true
     try {
       let mtime: string
       try {
@@ -128,7 +157,7 @@ export default function App() {
         if (e !== "conflict") throw e
         const ok = await ask(`“${doc}” changed on disk after you opened it. Overwrite it with your version?`,
           { title: "File changed on disk", kind: "warning", okLabel: "Overwrite", cancelLabel: "Cancel" })
-        if (!ok) return false
+        if (!ok) return setAutosavePaused(true), false
         mtime = await api.saveDoc(doc, draft, disk.mtime, true)
       }
       const saved = { content: draft, mtime }
@@ -136,36 +165,62 @@ export default function App() {
       S.current = { ...S.current, disk: saved, dirty: S.current.draft !== draft }
       return true
     } catch (e) {
-      toast.error(`Couldn’t save: ${e}`, { duration: 10_000 })
+      setAutosavePaused(true)
+      toast.error(`Couldn’t save: ${e}`, { description: auto ? "Autosave is paused. Press ⌘S to retry." : undefined, duration: 10_000 })
       return false
+    } finally {
+      saving.current = false
     }
   }
+
+  useEffect(() => {
+    if (!dirty || autosavePaused) return
+    const t = setTimeout(() => A.current.save(true), AUTOSAVE_MS)
+    return () => clearTimeout(t)
+  }, [draft, disk, dirty, autosavePaused])
 
   const switchMode = async (m: Mode) => {
     if (m === S.current.mode || !S.current.doc) return true
-    if (m === "preview") {
-      if (!(await save())) return false
-      setMode("preview")
-      S.current.mode = "preview"
-      await showHtml(await api.render(S.current.draft))
-    } else {
-      setMode("markdown")
-      S.current.mode = "markdown"
-    }
+    if (m === "preview" && !(await save())) return false
+    setMode(m)
+    S.current.mode = m
+    if (m !== "markdown") await showHtml(await api.render(S.current.draft))
     return true
   }
 
+  /** Makes sure the preview is on screen (leaving Markdown-only mode saves first). */
+  const ensurePreview = async () => S.current.mode !== "markdown" || switchMode("preview")
+
+  const scrollToRange = (r: Range) => {
+    const box = scrollRef.current!
+    box.scrollTo({ top: r.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 80, behavior: "smooth" })
+  }
+
   const jumpToHeading = async (id: string) => {
-    if (!(await switchMode("preview"))) return
+    if (!(await ensurePreview())) return
     previewRef.current!.querySelector(`[id="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })
   }
 
   const jumpToThread = async (id: number) => {
     setActive(id)
-    if (!(await switchMode("preview"))) return
+    if (!(await ensurePreview())) return
     const r = anchor(previewRef.current!, S.current.comments, id).ranges.get(id)
-    const box = scrollRef.current!
-    if (r) box.scrollTo({ top: r.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 80, behavior: "smooth" })
+    if (r) scrollToRange(r)
+  }
+
+  /** Opens a search result and marks the first match in the preview. */
+  const openSearchResult = async (id: string, q: string) => {
+    await openDoc(id)
+    if (!q || S.current.doc !== id || S.current.mode === "markdown") return
+    const r = findText(previewRef.current!, q)
+    if (!r) return
+    CSS.highlights?.set("search", new Highlight(r))
+    scrollToRange(r)
+  }
+
+  const openLink = async (id: string, hash: string) => {
+    await openDoc(id)
+    if (hash && S.current.doc === id) jumpToHeading(hash)
   }
 
   const exportPdf = async () => {
@@ -180,7 +235,7 @@ export default function App() {
       submit: async (name) => {
         const id = await api.createDoc(name)
         await refreshTree()
-        await openDoc(id, "markdown")
+        await openDoc(id, S.current.mode === "preview" ? "markdown" : S.current.mode)
       },
     })
 
@@ -205,13 +260,19 @@ export default function App() {
     refreshTree()
   }
 
+  const updateSettings = (next: Settings) => {
+    setSettings(next)
+    applySettings(next)
+    saveSettings(next).catch(err)
+  }
+
   const startNote = () => { setCompose({ kind: "new", quote: null, start: null }); setTab("comments") }
 
   // ---------- Selection → floating Comment button ----------
 
   const selectionInPreview = () => {
     const sel = getSelection()
-    if (S.current.mode !== "preview" || !sel?.rangeCount || sel.isCollapsed) return null
+    if (S.current.mode === "markdown" || !sel?.rangeCount || sel.isCollapsed) return null
     const r = sel.getRangeAt(0)
     return previewRef.current!.contains(r.commonAncestorContainer) && r.toString().trim() ? r : null
   }
@@ -235,7 +296,7 @@ export default function App() {
   }
 
   const spy = () => {
-    if (S.current.mode !== "preview") return
+    if (S.current.mode === "markdown") return
     const top = scrollRef.current!.getBoundingClientRect().top + 16
     let cur: string | null = null
     for (const h of headingEls(previewRef.current!)) {
@@ -248,20 +309,24 @@ export default function App() {
 
   // ---------- Global wiring ----------
 
-  const A = useRef({ save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading })
-  A.current = { save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading }
+  const A = useRef({ save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading, openLink })
+  A.current = { save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading, openLink }
 
   useEffect(() => {
+    api.rootDir().then((d) => (rootDir.current = d), err)
+    loadSettings().then((s) => (setSettings(s), applySettings(s)), err)
     A.current.syncFromDisk()
     const onFocus = () => A.current.syncFromDisk()
     const onSel = () => A.current.placeFab()
-    // Links never navigate the webview: anchors scroll, web links open in the browser.
+    // Links never navigate the webview: anchors scroll, .md links open the doc, web links open in the browser.
     const onClick = (e: MouseEvent) => {
       const a = (e.target as Element).closest?.("a[href]") as HTMLAnchorElement | null
       if (!a) return
       e.preventDefault()
       const href = a.getAttribute("href")!
+      const target = docLink(S.current.doc ?? "", href)
       if (href.startsWith("#")) A.current.jumpToHeading(decodeURIComponent(href.slice(1)))
+      else if (target) A.current.openLink(target.id, target.hash)
       else if (/^(https?:|mailto:)/i.test(href)) api.openUrl(a.href).catch(err)
     }
     addEventListener("focus", onFocus)
@@ -279,6 +344,8 @@ export default function App() {
         if (payload === "quit") { if (await a.confirmDiscard()) api.quit() }
         else if (payload === "save") a.save()
         else if (payload === "new-doc") a.newDoc()
+        else if (payload === "search") setSearchOpen(true)
+        else if (payload === "settings") setSettingsOpen(true)
         else if (payload === "reveal") api.revealRoot().catch(err)
         else if (payload === "export-pdf") a.exportPdf()
         else if (payload === "toggle-mode") a.switchMode(S.current.mode === "preview" ? "markdown" : "preview")
@@ -302,24 +369,30 @@ export default function App() {
     getCurrentWindow().setTitle(name)
   }, [doc])
 
-  useEffect(() => {
-    if (mode === "markdown") editorRef.current?.focus()
-  }, [mode, doc])
+  const closeSettings = useCallback(() => setSettingsOpen(false), [])
 
   const openCount = comments.filter((c) => c.parent_id == null && !c.resolved).length
 
   return (
     <div className="grid h-screen grid-cols-[250px_minmax(0,1fr)_300px] overflow-hidden select-none">
-      <Sidebar tree={tree} current={doc} onOpen={openDoc} onNew={newDoc} onRename={renameDoc} onDelete={deleteDoc} onReveal={() => api.revealRoot().catch(err)} />
+      <Sidebar
+        tree={tree} current={doc} onOpen={openDoc} onNew={newDoc} onRename={renameDoc} onDelete={deleteDoc}
+        onSearch={() => setSearchOpen(true)} onSettings={() => setSettingsOpen(true)} onReveal={() => api.revealRoot().catch(err)}
+      />
 
-      <main className="flex min-h-0 min-w-0 flex-col">
+      {settingsOpen && <SettingsPage settings={settings} onChange={updateSettings} onClose={closeSettings} />}
+
+      <main className={cn("flex min-h-0 min-w-0 flex-col", settingsOpen && "hidden")}>
         <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
           <h1 className="min-w-0 flex-1 truncate text-sm font-semibold">{doc ?? ""}</h1>
           {doc && (
             <>
-              {dirty && <Button size="sm" onClick={save}><Save /> Save</Button>}
+              {dirty && (autosavePaused
+                ? <Button size="sm" onClick={() => save()}><Save /> Save</Button>
+                : <span className="text-xs text-muted-foreground">Saving…</span>)}
               <ToggleGroup variant="outline" size="sm" value={[mode]} onValueChange={(v: string[]) => v[0] && switchMode(v[0] as Mode)}>
                 <ToggleGroupItem value="preview">Preview</ToggleGroupItem>
+                <ToggleGroupItem value="split">Split</ToggleGroupItem>
                 <ToggleGroupItem value="markdown">Markdown</ToggleGroupItem>
               </ToggleGroup>
               <Button size="sm" variant="ghost" onClick={startNote}><MessageSquareText /> Add note</Button>
@@ -327,28 +400,29 @@ export default function App() {
             </>
           )}
         </header>
-        <div ref={scrollRef} onScroll={() => (spy(), placeFab())} className="flex min-h-0 flex-1 flex-col overflow-auto">
-          <article ref={previewRef} className={cn("markdown select-text", (!doc || mode !== "preview") && "hidden")} />
-          {doc && mode === "markdown" && (
-            <textarea
-              ref={editorRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              spellCheck={false}
-              aria-label="Markdown source"
-              className="flex-1 resize-none bg-background px-8 py-6 font-mono text-[13px] leading-relaxed outline-none"
-            />
-          )}
-          {!doc && (
-            <div className="m-auto grid justify-items-center gap-3 text-center text-sm text-muted-foreground">
-              <p>{tree.length ? "Pick a doc from the sidebar, or start a new one." : "Create your first doc to get started."}</p>
-              <Button onClick={newDoc}><Plus /> New doc</Button>
+        <div className="flex min-h-0 flex-1">
+          {doc && mode !== "preview" && (
+            <div className={cn("min-h-0 min-w-0 flex-1", mode === "split" && "border-r")}>
+              <Editor docKey={doc} value={draft} onChange={setDraft} />
             </div>
           )}
+          <div
+            ref={scrollRef}
+            onScroll={() => (spy(), placeFab())}
+            className={cn("flex min-h-0 min-w-0 flex-1 flex-col overflow-auto", doc && mode === "markdown" && "hidden")}
+          >
+            <article ref={previewRef} className={cn("markdown select-text", !doc && "hidden")} />
+            {!doc && (
+              <div className="m-auto grid justify-items-center gap-3 text-center text-sm text-muted-foreground">
+                <p>{tree.length ? "Pick a doc from the sidebar, or start a new one." : "Create your first doc to get started."}</p>
+                <Button onClick={newDoc}><Plus /> New doc</Button>
+              </div>
+            )}
+          </div>
         </div>
       </main>
 
-      <aside className="flex min-h-0 flex-col border-l bg-sidebar">
+      <aside className={cn("flex min-h-0 flex-col border-l bg-sidebar", settingsOpen && "hidden")}>
         <Tabs value={tab} onValueChange={(v) => setTab(String(v))} className="flex min-h-0 flex-1 flex-col gap-0">
           <TabsList variant="line" className="w-full shrink-0 justify-start border-b px-3 pt-2 pb-0">
             <TabsTrigger value="toc">Contents</TabsTrigger>
@@ -399,6 +473,7 @@ export default function App() {
         </Button>
       )}
       <NameDialog req={nameReq} onClose={() => setNameReq(null)} />
+      <SearchDialog open={searchOpen} onOpenChange={setSearchOpen} tree={tree} onPick={openSearchResult} />
     </div>
   )
 }

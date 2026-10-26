@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { ChevronRight, FileText, FolderOpen, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react"
+import { ChevronRight, FileText, FolderOpen, MoreHorizontal, Pencil, Plus, Search, Settings, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -14,6 +14,8 @@ type Props = {
   onNew: () => void
   onRename: (id: string) => void
   onDelete: (id: string) => void
+  onSearch: () => void
+  onSettings: () => void
   onReveal: () => void
 }
 
@@ -91,8 +93,10 @@ export function Sidebar(p: Props) {
     <aside className="flex min-h-0 flex-col border-r bg-sidebar text-sidebar-foreground">
       <div className="flex items-center gap-1 px-3 pt-3 pb-2">
         <span className="flex-1 text-sm font-semibold">Docs</span>
+        <IconButton label="Search (⌘K)" onClick={p.onSearch}><Search /></IconButton>
         <IconButton label="Show in Finder" onClick={p.onReveal}><FolderOpen /></IconButton>
         <IconButton label="New doc (⌘N)" onClick={p.onNew}><Plus /></IconButton>
+        <IconButton label="Settings (⌘,)" onClick={p.onSettings}><Settings /></IconButton>
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <nav className="px-2 pb-3" aria-label="Documents">

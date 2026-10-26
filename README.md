@@ -8,11 +8,15 @@ Built with [Tauri v2](https://tauri.app) (Rust backend, native WKWebView) and Re
 
 - **Docs without folder wrangling** — create, rename and delete docs from the app. Name a doc `team/standup` and it's grouped under "team" automatically.
 - **Plain files** — every doc is a normal `.md` file, so you can still open, edit, back up or version it with any other tool. Changes made outside the app show up live.
-- **Rich preview** — GitHub-flavored Markdown (tables, task lists, strikethrough, autolinks, footnotes), KaTeX math (`$inline$`, `$$block$$`), and Mermaid diagrams. Raw HTML is allowed but sanitized.
-- **Editor** — toggle between Preview and raw Markdown. Saves are atomic, and you're asked before overwriting a file that changed on disk since you opened it.
+- **Search** — ⌘K opens a palette: type to search doc names and contents, or pick from all docs. Opening a result highlights the first match.
+- **Rich preview** — GitHub-flavored Markdown (tables, task lists, strikethrough, autolinks, footnotes), syntax-highlighted code blocks, KaTeX math (`$inline$`, `$$block$$`), and Mermaid diagrams. Raw HTML is allowed but sanitized.
+- **Links and images between docs** — `[setup](../guides/setup.md#install)` opens that doc at that heading; `![](img/diagram.png)` loads images relative to the doc.
+- **Editor** — CodeMirror with Markdown highlighting, line numbers, and find/replace (⌘F). Switch between **Preview**, **Split** (editor + live preview), and **Markdown**.
+- **Autosave** — changes are saved a second after you stop typing (⌘S still works). Saves are atomic, and you're asked before overwriting a file that changed on disk since you opened it; if you decline or a save fails, autosave pauses until you save manually.
 - **Table of contents** — built from h1–h4, with smooth scrolling and scroll-spy highlighting.
 - **Anchored comments** — select text in the preview and click **Comment**, or add a general note. Threads support replies, edits, deletion, and resolve/reopen. Comment bodies are Markdown. If the quoted text disappears from the doc, the thread is flagged.
 - **Export PDF** — prints just the rendered doc, with no app chrome.
+- **Settings** (⌘,) — a settings page for app preferences, starting with fonts: pick any font installed on your Mac for the interface/docs and for code/the editor. Saved to `settings.json` in the app data folder.
 - Follows the system light/dark appearance.
 
 ## Requirements
@@ -47,7 +51,8 @@ The build is unsigned. On first launch, right-click the app → **Open** (or all
 ### Run the tests
 
 ```sh
-cd src-tauri && cargo test
+npm test                    # frontend (Vitest)
+cd src-tauri && cargo test  # backend
 ```
 
 ## Where your data lives
@@ -59,6 +64,7 @@ cd src-tauri && cargo test
 │   └── standup.md
 └── .docs/
     └── comments.db      # SQLite: all comment threads
+# and next to Docs/: settings.json (app preferences)
 ```
 
 Use **File → Show Docs in Finder** (⇧⌘R) to open it. Folders and files starting with `.` are hidden from the sidebar. A doc's id is its path without `.md` (e.g. `team/standup`); comments are keyed by that id and follow the doc when you rename it in the app.
@@ -67,8 +73,11 @@ Use **File → Show Docs in Finder** (⇧⌘R) to open it. Folders and files sta
 
 | Shortcut | Action |
 | --- | --- |
+| ⌘K | Search / quick open |
+| ⌘, | Settings |
 | ⌘N | New doc |
-| ⌘S | Save |
+| ⌘S | Save now |
+| ⌘F | Find / replace in the editor |
 | ⌘E | Toggle Preview / Markdown |
 | ⌘P | Export PDF |
 | ⇧⌘R | Show docs in Finder |
@@ -82,15 +91,20 @@ src/                     React frontend
 ├── components/
 │   ├── Sidebar.tsx      doc tree, new / rename / delete
 │   ├── CommentsPanel.tsx
+│   ├── Editor.tsx       CodeMirror 6 editor
+│   ├── SearchDialog.tsx ⌘K palette
+│   ├── SettingsPage.tsx settings page (add new sections here)
 │   ├── NameDialog.tsx
 │   └── ui/              shadcn components
 └── lib/
     ├── api.ts           typed wrappers around Tauri commands
-    └── preview.ts       KaTeX + Mermaid rendering, comment anchoring & highlights
+    ├── settings.ts      settings shape, defaults, load/save, applies fonts via CSS variables
+    ├── links.ts         relative doc links / image paths (tested with Vitest)
+    └── preview.ts       images, code highlighting, KaTeX, Mermaid, comment anchoring
 
 src-tauri/src/           Rust backend
 ├── main.rs              commands, menu, file watcher
-├── docs.rs              file tree, safe paths, atomic save, Markdown → sanitized HTML
+├── docs.rs              file tree, search, safe paths, atomic save, Markdown → sanitized HTML
 └── comments.rs          SQLite comment store
 ```
 
@@ -106,6 +120,7 @@ src-tauri/src/           Rust backend
 ## Limitations
 
 - macOS only (the app is built around WKWebView and FSEvents).
-- No search, multiple libraries, sync, or comment authors yet.
-- Images with relative paths (`![](img.png)`) aren't loaded in the preview.
+- No multiple libraries, sync, or comment authors yet.
+- Search rescans files on each query — instant for hundreds of docs, not built for tens of thousands.
+- Images inside dot-folders (e.g. `.assets/`) aren't loaded.
 - Comments are lost if a doc is renamed or moved outside the app.

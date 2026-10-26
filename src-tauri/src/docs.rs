@@ -47,6 +47,46 @@ fn walk(dir: &Path, prefix: &str) -> Vec<Node> {
     out
 }
 
+#[derive(Serialize)]
+pub struct Hit {
+    id: String,
+    /// First matching lines (trimmed), for the result snippet.
+    lines: Vec<String>,
+}
+
+/// Case-insensitive full-text search over names and contents. Name matches rank first, then by match count.
+/// ponytail: rescans every file per query; fine for hundreds of docs, add an FTS5 index if libraries get big.
+pub fn search(root: &Path, query: &str) -> Vec<Hit> {
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return vec![];
+    }
+    let mut ids = vec![];
+    fn flatten(nodes: Vec<Node>, out: &mut Vec<String>) {
+        for n in nodes {
+            match n.children {
+                Some(c) => flatten(c, out),
+                None => out.push(n.id),
+            }
+        }
+    }
+    flatten(tree(root), &mut ids);
+    let mut hits: Vec<(bool, usize, Hit)> = ids
+        .into_iter()
+        .filter_map(|id| {
+            let text = fs::read_to_string(root.join(format!("{id}.md"))).unwrap_or_default();
+            let matching: Vec<&str> = text.lines().filter(|l| l.to_lowercase().contains(&q)).collect();
+            let in_name = id.to_lowercase().contains(&q);
+            (in_name || !matching.is_empty()).then(|| {
+                let lines = matching.iter().take(3).map(|l| l.trim().chars().take(160).collect()).collect();
+                (in_name, matching.len(), Hit { id, lines })
+            })
+        })
+        .collect();
+    hits.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then_with(|| natural_cmp(&a.2.id, &b.2.id)));
+    hits.into_iter().take(50).map(|h| h.2).collect()
+}
+
 /// Case-insensitive, numeric-aware: "2" < "10".
 pub fn natural_cmp(a: &str, b: &str) -> Ordering {
     let (a, b) = (a.to_lowercase(), b.to_lowercase());
@@ -221,6 +261,12 @@ mod tests {
         assert_eq!(rename(&root, "team/standup", "daily/standup").unwrap(), "daily/standup");
         assert!(root.join("daily/standup.md").exists() && !root.join("team/standup.md").exists());
         assert!(rename(&root, "a", "daily/standup").is_err(), "no overwrite on rename");
+        fs::write(root.join("b.md"), "Alpha\nbeta GAMMA\ngamma again").unwrap();
+        let hits = search(&root, "gamma");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].lines, ["beta GAMMA", "gamma again"]);
+        assert_eq!(search(&root, "standup")[0].id, "daily/standup", "name match");
+        assert!(search(&root, "  ").is_empty());
         fs::remove_dir_all(dir).unwrap();
     }
 

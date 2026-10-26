@@ -1,10 +1,25 @@
 import katex from "katex"
+import hljs from "highlight.js/lib/common"
+import { convertFileSrc } from "@tauri-apps/api/core"
 import type { Comment } from "./api"
+import { localAsset } from "./links"
 
 let mermaidSeq = 0
 
-/** Post-processes sanitized HTML in place: scrollable tables, KaTeX math, Mermaid diagrams. */
-export async function enhance(root: HTMLElement, isCurrent: () => boolean) {
+/**
+ * Post-processes sanitized HTML in place: relative images, scrollable tables, code highlighting, KaTeX math,
+ * Mermaid diagrams. `doc`/`rootDir` locate relative image paths.
+ */
+export async function enhance(root: HTMLElement, isCurrent: () => boolean, doc: string | null, rootDir: string) {
+  for (const img of root.querySelectorAll("img")) {
+    const p = doc && rootDir ? localAsset(doc, img.getAttribute("src") ?? "") : null
+    if (p) img.src = convertFileSrc(`${rootDir}/${p}`)
+  }
+  // Only blocks with a known language; guessing languages for untagged blocks is often wrong.
+  for (const code of root.querySelectorAll<HTMLElement>("pre > code[class*='language-']")) {
+    const lang = [...code.classList].find((c) => c.startsWith("language-"))!.slice(9)
+    if (lang !== "mermaid" && hljs.getLanguage(lang)) hljs.highlightElement(code)
+  }
   for (const t of root.querySelectorAll("table")) {
     const wrap = document.createElement("div")
     wrap.className = "table-wrap"
@@ -81,6 +96,13 @@ function rangeAt(ix: TextIndex, s: number, e: number) {
   r.setStart(...find(s, false))
   r.setEnd(...find(e, true))
   return r
+}
+
+/** First case-insensitive occurrence of `q` in the preview text, as a Range. */
+export function findText(root: HTMLElement, q: string) {
+  const ix = textIndex(root)
+  const i = ix.text.toLowerCase().indexOf(q.toLowerCase())
+  return i < 0 ? null : rangeAt(ix, i, i + q.length)
 }
 
 /** Selection → { quote, start } in the same offset space used for anchoring. */

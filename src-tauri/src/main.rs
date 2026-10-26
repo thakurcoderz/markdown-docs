@@ -80,6 +80,11 @@ fn save_doc(s: State<AppState>, id: String, content: String, mtime: String, forc
 }
 
 #[tauri::command]
+fn search(s: State<AppState>, query: String) -> Result<Vec<docs::Hit>, String> {
+    with_root(&s, |r| Ok(docs::search(&r.dir, &query)))
+}
+
+#[tauri::command]
 fn render(md: String) -> String {
     docs::render(&md)
 }
@@ -107,6 +112,40 @@ fn delete_comment(s: State<AppState>, id: i64) -> Result<(), String> {
 #[tauri::command]
 fn resolve_comment(s: State<AppState>, id: i64, resolved: bool) -> Result<(), String> {
     with_root(&s, |r| comments::set_resolved(&r.db, id, resolved))
+}
+
+fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("settings.json"))
+}
+
+/// App preferences as free-form JSON; the frontend owns the shape and defaults.
+#[tauri::command]
+fn get_settings(app: AppHandle) -> serde_json::Value {
+    settings_path(&app)
+        .ok()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}))
+}
+
+#[tauri::command]
+fn set_settings(app: AppHandle, settings: serde_json::Value) -> Result<(), String> {
+    let p = settings_path(&app)?;
+    let tmp = p.with_extension("json.tmp");
+    let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+    std::fs::write(&tmp, json).and_then(|_| std::fs::rename(&tmp, &p)).map_err(|e| e.to_string())
+}
+
+/// Installed font families, from CoreText. Dot-prefixed families are macOS-internal and not usable by name.
+#[tauri::command]
+fn list_fonts() -> Vec<String> {
+    use objc2_core_foundation::CFString;
+    let all = unsafe { objc2_core_text::CTFontManagerCopyAvailableFontFamilyNames() };
+    let all = unsafe { all.cast_unchecked::<CFString>() };
+    let mut v: Vec<String> = all.iter().map(|s| s.to_string()).filter(|s| !s.starts_with('.')).collect();
+    v.sort_by(|a, b| docs::natural_cmp(a, b));
+    v.dedup();
+    v
 }
 
 #[tauri::command]
@@ -140,6 +179,8 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
                 &[
                     &PredefinedMenuItem::about(app, None, None)?,
                     &sep()?,
+                    &item("settings", "Settings…", "CmdOrCtrl+,")?,
+                    &sep()?,
                     &PredefinedMenuItem::hide(app, None)?,
                     &PredefinedMenuItem::hide_others(app, None)?,
                     &sep()?,
@@ -153,6 +194,7 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
                 true,
                 &[
                     &item("new-doc", "New Doc…", "CmdOrCtrl+N")?,
+                    &item("search", "Search Docs…", "CmdOrCtrl+K")?,
                     &item("reveal", "Show Docs in Finder", "CmdOrCtrl+Shift+R")?,
                     &item("save", "Save", "CmdOrCtrl+S")?,
                     &sep()?,
@@ -217,9 +259,19 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            root_dir, create_doc, rename_doc, delete_doc, reveal_root, tree, read_doc, save_doc, render, list_comments, add_comment, edit_comment,
-            delete_comment, resolve_comment, open_url, print, quit
+            root_dir, create_doc, rename_doc, delete_doc, reveal_root, tree, read_doc, save_doc, search, render, list_comments, add_comment, edit_comment,
+            delete_comment, resolve_comment, get_settings, set_settings, list_fonts, open_url, print, quit
         ])
         .run(tauri::generate_context!())
         .expect("error while running app");
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn lists_installed_fonts() {
+        let fonts = super::list_fonts();
+        assert!(fonts.iter().any(|f| f == "Helvetica"), "{} fonts", fonts.len());
+        assert!(fonts.iter().all(|f| !f.starts_with('.')));
+    }
 }
