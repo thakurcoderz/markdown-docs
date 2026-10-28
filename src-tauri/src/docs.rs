@@ -170,8 +170,12 @@ pub fn delete(root: &Path, id: &str) -> Result<(), String> {
 
 /// Doc ids always use '/', matching `tree`, even where the OS separator is '\'.
 fn id_of(root: &Path, p: &Path) -> String {
-    let rel = p.strip_prefix(root).unwrap_or(p).with_extension("");
-    rel.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/")
+    rel_path(root, &p.with_extension(""))
+}
+
+/// `p` relative to `root`, '/'-separated. Folder ids are this (no extension to strip: "v1.2" stays "v1.2").
+fn rel_path(root: &Path, p: &Path) -> String {
+    p.strip_prefix(root).unwrap_or(p).components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/")
 }
 
 fn mtime(p: &Path) -> Result<String, String> {
@@ -191,19 +195,97 @@ pub fn save(root: &Path, id: &str, content: &str, expected: &str, force: bool) -
     if !force && mtime(&p)? != expected {
         return Err("conflict".into());
     }
+    write_atomic(&p, content)?;
+    mtime(&p)
+}
+
+/// Replaces an existing file via a temp file + rename, keeping its permissions.
+fn write_atomic(p: &Path, content: &str) -> Result<(), String> {
     let tmp = p.with_file_name(format!(".{}.{}.tmp", p.file_name().unwrap().to_string_lossy(), std::process::id()));
     let res = (|| {
         fs::write(&tmp, content)?;
-        fs::set_permissions(&tmp, fs::metadata(&p)?.permissions())?;
+        fs::set_permissions(&tmp, fs::metadata(p)?.permissions())?;
         // Write access: Windows refuses to flush a read-only handle.
         fs::OpenOptions::new().write(true).open(&tmp)?.sync_all()?;
-        fs::rename(&tmp, &p)
+        fs::rename(&tmp, p)
     })();
     if let Err(e) = res {
         let _ = fs::remove_file(&tmp);
         return Err(e.to_string());
     }
-    mtime(&p)
+    Ok(())
+}
+
+/// Resolves a folder id ("" = the root) to its path, rejecting anything outside `root`.
+fn folder_path(root: &Path, id: &str) -> Result<PathBuf, String> {
+    let ok = id.is_empty() || Path::new(id).components().all(|c| matches!(c, Component::Normal(s) if !s.to_string_lossy().starts_with('.')));
+    if !ok {
+        return Err(format!("Invalid folder: {id}"));
+    }
+    let p = fs::canonicalize(root.join(id)).map_err(|_| format!("Folder not found: {id}"))?;
+    if !p.starts_with(root) || !p.is_dir() {
+        return Err(format!("Folder not found: {id}"));
+    }
+    Ok(p)
+}
+
+/// Moves a doc (or a folder, with everything in it) into folder `to` ("" = the top level), keeping its name.
+/// Never overwrites, and a folder can't go inside itself. Afterwards relative links and images in every doc
+/// are rewritten so they still point at the same files. Returns the moved item's new id.
+pub fn move_item(root: &Path, from: &str, folder: bool, to: &str) -> Result<String, String> {
+    let src = if folder { folder_path(root, from)? } else { doc_path(root, from)? };
+    if src == root {
+        return Err("Can't move the docs folder itself".into());
+    }
+    let dst_dir = folder_path(root, to)?;
+    if folder && dst_dir.starts_with(&src) {
+        return Err("A folder can't be moved into itself".into());
+    }
+    if src.parent() == Some(dst_dir.as_path()) {
+        return Ok(from.to_string());
+    }
+    let dst = dst_dir.join(src.file_name().unwrap());
+    let id = |p: &Path| if folder { rel_path(root, p) } else { id_of(root, p) };
+    let (old, new) = (id(&src), id(&dst));
+    if dst.exists() {
+        return Err(format!("“{new}” already exists there"));
+    }
+    // Every doc's text and where it lives now, read before anything moves.
+    let mut docs = vec![];
+    fn flatten(nodes: Vec<Node>, out: &mut Vec<String>) {
+        for n in nodes {
+            match n.children {
+                Some(c) => flatten(c, out),
+                None => out.push(n.id),
+            }
+        }
+    }
+    flatten(tree(root), &mut docs);
+    fs::rename(&src, &dst).map_err(|e| e.to_string())?;
+
+    // Root-relative file paths: the moved doc's file, or anything under the moved folder.
+    let (old_file, new_file) = if folder { (old.clone(), new.clone()) } else { (format!("{old}.md"), format!("{new}.md")) };
+    let map = |p: &str| -> String {
+        match p.strip_prefix(old_file.as_str()) {
+            Some(rest) if rest.is_empty() || (folder && rest.starts_with('/')) => format!("{new_file}{rest}"),
+            _ => p.to_string(),
+        }
+    };
+    let mut failed = vec![];
+    for id in docs {
+        let (was, now) = (format!("{id}.md"), map(&format!("{id}.md")));
+        let p = root.join(&now);
+        let Ok(text) = fs::read_to_string(&p) else { continue };
+        if let Some(fixed) = crate::relink::rewrite(&text, &was, &now, &map) {
+            if let Err(e) = write_atomic(&p, &fixed) {
+                failed.push(format!("{now}: {e}"));
+            }
+        }
+    }
+    if !failed.is_empty() {
+        return Err(format!("Moved, but some links couldn’t be updated ({})", failed.join("; ")));
+    }
+    Ok(new)
 }
 
 const IMAGE_EXTS: [&str; 7] = ["png", "jpg", "jpeg", "gif", "webp", "svg", "avif"];
@@ -325,6 +407,47 @@ mod tests {
         assert_eq!(save_image(&root, "team/standup", "../../ .png", b"c").unwrap(), "img/image.png");
         assert!(save_image(&root, "team/standup", "notes.txt", b"x").is_err());
         assert!(save_image(&root, "../x", "a.png", b"x").is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn moves_docs_and_folders_and_fixes_links() {
+        let dir = std::env::temp_dir().join(format!("mdmove-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("team/img")).unwrap();
+        fs::create_dir_all(dir.join("archive")).unwrap();
+        let root = fs::canonicalize(&dir).unwrap();
+        fs::write(root.join("team/standup.md"), "![s](img/s.png) [n](../notes.md) [r](retro.md)").unwrap();
+        fs::write(root.join("team/retro.md"), "[s](standup.md)").unwrap();
+        fs::write(root.join("team/img/s.png"), "png").unwrap();
+        fs::write(root.join("notes.md"), "[s](team/standup.md) [r](team/retro.md)").unwrap();
+        fs::write(root.join("archive/keep.md"), "").unwrap();
+        let read = |p: &str| fs::read_to_string(root.join(p)).unwrap();
+
+        // A doc out to the top level: its links and the links to it follow.
+        assert_eq!(move_item(&root, "team/standup", false, "").unwrap(), "standup");
+        assert_eq!(read("standup.md"), "![s](team/img/s.png) [n](notes.md) [r](team/retro.md)");
+        assert_eq!(read("notes.md"), "[s](standup.md) [r](team/retro.md)");
+        assert_eq!(read("team/retro.md"), "[s](../standup.md)");
+
+        // A folder into another folder.
+        assert_eq!(move_item(&root, "team", true, "archive").unwrap(), "archive/team");
+        assert!(root.join("archive/team/img/s.png").exists() && !root.join("team").exists());
+        assert_eq!(read("standup.md"), "![s](archive/team/img/s.png) [n](notes.md) [r](archive/team/retro.md)");
+        assert_eq!(read("archive/team/retro.md"), "[s](../../standup.md)");
+
+        // Folder names with dots keep them.
+        fs::create_dir_all(root.join("v1.2")).unwrap();
+        fs::write(root.join("v1.2/a.md"), "").unwrap();
+        assert_eq!(move_item(&root, "v1.2", true, "archive").unwrap(), "archive/v1.2");
+
+        // Same folder is a no-op; clashes, self-nesting and escapes are refused.
+        assert_eq!(move_item(&root, "notes", false, "").unwrap(), "notes");
+        fs::write(root.join("archive/team/notes.md"), "").unwrap();
+        assert!(move_item(&root, "notes", false, "archive/team").is_err(), "clash");
+        assert!(move_item(&root, "archive", true, "archive/team").is_err(), "into itself");
+        assert!(move_item(&root, "archive", true, "archive").is_err(), "into itself");
+        assert!(move_item(&root, "notes", false, "../").is_err() && move_item(&root, "", true, "archive").is_err());
         fs::remove_dir_all(dir).unwrap();
     }
 

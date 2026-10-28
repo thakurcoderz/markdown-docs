@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { ChevronRight, FileText, FolderOpen, MoreHorizontal, Pencil, Plus, Search, Settings, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -13,6 +13,8 @@ type Props = {
   onOpen: (id: string) => void
   onNew: () => void
   onRename: (id: string) => void
+  /** Moves a doc or folder into folder `to` ("" = top level). */
+  onMove: (id: string, folder: boolean, to: string) => void
   onDelete: (id: string) => void
   onSearch: () => void
   onSettings: () => void
@@ -28,6 +30,15 @@ export function IconButton({ label, onClick, children }: { label: string; onClic
   )
 }
 
+/** Drag payload type; deliberately not text/uri-list, which the native file-drop handler would claim. */
+const DRAG_TYPE = "application/x-markdown-docs"
+type Dragged = { id: string; folder: boolean }
+const parentOf = (id: string) => id.slice(0, Math.max(0, id.lastIndexOf("/")))
+
+/** Whether `d` can move into folder `to`: not where it already is, and a folder not into itself. */
+const canDrop = (d: Dragged | null, to: string): d is Dragged =>
+  !!d && parentOf(d.id) !== to && !(d.folder && (to === d.id || to.startsWith(d.id + "/")))
+
 export function Sidebar(p: Props) {
   // Folders start expanded; we only remember which ones the user collapsed.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
@@ -38,13 +49,56 @@ export function Sidebar(p: Props) {
       return n
     })
 
+  // Drag a doc or folder onto a folder (or anything in it) to move it there; onto top-level items or the
+  // empty space below the list to move it to the top level.
+  const [dragged, setDragged] = useState<Dragged | null>(null)
+  const [over, setOver] = useState<string | null>(null)
+  const dragProps = (item: Dragged) => ({
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => {
+      e.dataTransfer.setData(DRAG_TYPE, item.id)
+      e.dataTransfer.effectAllowed = "move"
+      setDragged(item)
+    },
+    onDragEnd: () => (setDragged(null), setOver(null)),
+  })
+  // Every drop zone stops propagation, so an invalid spot doesn't fall through to an outer folder.
+  const dropProps = (to: string) => ({
+    onDragOver: (e: React.DragEvent) => {
+      e.stopPropagation()
+      if (!canDrop(dragged, to)) return setOver(null)
+      e.preventDefault()
+      e.dataTransfer.dropEffect = "move"
+      setOver(to)
+    },
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      setDragged(null)
+      setOver(null)
+      if (canDrop(dragged, to)) p.onMove(dragged.id, dragged.folder, to)
+    },
+  })
+
+  // Hovering a collapsed folder while dragging opens it.
+  useEffect(() => {
+    if (!over || !collapsed.has(over)) return
+    const t = setTimeout(() => toggle(over), 600)
+    return () => clearTimeout(t)
+  }, [over, collapsed])
+
   const list = (nodes: TreeNode[], depth: number) => (
     <ul>
       {nodes.map((n) => (
-        <li key={n.id}>
+        <li
+          key={n.id}
+          {...dropProps(n.children ? n.id : parentOf(n.id))}
+          className={cn("rounded-md", n.children && over === n.id && "bg-sidebar-accent ring-1 ring-sidebar-ring", dragged?.id === n.id && "opacity-50")}
+        >
           {n.children ? (
             <>
               <button
+                {...dragProps({ id: n.id, folder: true })}
                 className="flex w-full items-center gap-1 rounded-md px-2 py-1 text-left text-sm font-medium text-muted-foreground hover:bg-sidebar-accent"
                 style={{ paddingLeft: 8 + depth * 12 }}
                 aria-expanded={!collapsed.has(n.id)}
@@ -63,6 +117,7 @@ export function Sidebar(p: Props) {
               )}
             >
               <button
+                {...dragProps({ id: n.id, folder: false })}
                 className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left"
                 style={{ paddingLeft: 8 + depth * 12 }}
                 title={n.id}
@@ -99,7 +154,12 @@ export function Sidebar(p: Props) {
         <IconButton label="Settings (⌘,)" onClick={p.onSettings}><Settings /></IconButton>
       </div>
       <ScrollArea className="min-h-0 flex-1">
-        <nav className="px-2 pb-3" aria-label="Documents">
+        <nav
+          {...dropProps("")}
+          onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setOver(null)}
+          className={cn("min-h-full rounded-md px-2 pb-12", over === "" && "bg-sidebar-accent/60")}
+          aria-label="Documents"
+        >
           {p.tree.length ? (
             list(p.tree, 0)
           ) : (
