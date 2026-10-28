@@ -167,9 +167,10 @@ pub fn delete(root: &Path, id: &str) -> Result<(), String> {
     trash::delete(doc_path(root, id)?).map_err(|e| e.to_string())
 }
 
+/// Doc ids always use '/', matching `tree`, even where the OS separator is '\'.
 fn id_of(root: &Path, p: &Path) -> String {
     let rel = p.strip_prefix(root).unwrap_or(p).with_extension("");
-    rel.to_string_lossy().into_owned()
+    rel.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/")
 }
 
 fn mtime(p: &Path) -> Result<String, String> {
