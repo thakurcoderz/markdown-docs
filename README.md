@@ -39,7 +39,8 @@ xattr -dr com.apple.quarantine "/Applications/Markdown Docs.app"
 - **Table of contents** — built from h1–h4, with smooth scrolling and scroll-spy highlighting.
 - **Anchored comments** — select text in the preview and click **Comment**, or add a general note. Threads support replies, edits, deletion, and resolve/reopen. Comment bodies are Markdown. If the quoted text disappears from the doc, the thread is flagged.
 - **Export PDF** — prints just the rendered doc, with no app chrome.
-- **Settings** (⌘,) — a settings page for app preferences, starting with fonts: pick any font installed on your computer for the interface/docs and for code/the editor. Saved to `settings.json` in the app data folder.
+- **Settings** (⌘,) — a settings page for app preferences: pick any font installed on your computer for the interface/docs and for code/the editor, and choose where your docs are stored. Saved to `settings.json` in the app data folder.
+- **Choose your docs folder** — keep docs anywhere, e.g. in a Dropbox, Google Drive or Syncthing folder to use them on several computers. When you switch, the app can copy your current docs and comments across; it never overwrites files that are already there.
 - Follows the system light/dark appearance.
 
 On Linux, use <kbd>Ctrl</kbd> wherever this README says <kbd>⌘</kbd>.
@@ -109,7 +110,7 @@ cd src-tauri && cargo test  # backend
 
 ## Where your data lives
 
-On macOS the docs folder is `~/Library/Application Support/dev.thakurcoder.markdown-docs/Docs/`; on Linux it's `~/.local/share/dev.thakurcoder.markdown-docs/Docs/`.
+By default the docs folder is `~/Library/Application Support/dev.thakurcoder.markdown-docs/Docs/` on macOS and `~/.local/share/dev.thakurcoder.markdown-docs/Docs/` on Linux. Choose a different one in **Settings → Docs folder**; the choice is saved in `location.json` in the app data folder. If that folder can't be found at launch (say, an unplugged drive), the app opens the default folder and tells you.
 
 ```
 Docs/
@@ -118,10 +119,12 @@ Docs/
 │   └── standup.md
 └── .docs/
     └── comments.db      # SQLite: all comment threads
-# and next to Docs/: settings.json (app preferences)
+# in the app data folder: settings.json (app preferences), location.json (chosen docs folder)
 ```
 
 Use **File → Show Docs in Finder** (⇧⌘R) to open it in your file manager. Folders and files starting with `.` are hidden from the sidebar. A doc's id is its path without `.md` (e.g. `team/standup`); comments are keyed by that id and follow the doc when you rename it in the app.
+
+Because comments live inside the docs folder, copying or syncing that folder brings them along. Avoid having the app open on two computers that write to the same synced folder at once: the comments database is a single file, so simultaneous comment edits can produce a sync conflict copy.
 
 ## Keyboard shortcuts
 
