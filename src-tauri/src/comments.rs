@@ -116,6 +116,7 @@ mod tests {
         assert!(list(&db, "a").unwrap()[0].resolved);
         delete(&db, root).unwrap();
         assert!(list(&db, "a").unwrap().is_empty());
+        drop(db); // Windows can't delete the db file while it's open.
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

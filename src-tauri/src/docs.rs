@@ -193,7 +193,8 @@ pub fn save(root: &Path, id: &str, content: &str, expected: &str, force: bool) -
     let res = (|| {
         fs::write(&tmp, content)?;
         fs::set_permissions(&tmp, fs::metadata(&p)?.permissions())?;
-        fs::File::open(&tmp)?.sync_all()?;
+        // Write access: Windows refuses to flush a read-only handle.
+        fs::OpenOptions::new().write(true).open(&tmp)?.sync_all()?;
         fs::rename(&tmp, &p)
     })();
     if let Err(e) = res {
