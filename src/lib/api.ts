@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core"
 export type TreeNode = { name: string; id: string; children: TreeNode[] | null }
 export type Hit = { id: string; lines: string[] }
 export type Doc = { content: string; mtime: string }
+export type Saved = { Ok: string } | { Err: string }
 export type Comment = {
   id: number
   parent_id: number | null
@@ -30,6 +31,13 @@ export const api = {
   createDoc: (id: string) => invoke<string>("create_doc", { id }),
   renameDoc: (from: string, to: string) => invoke<string>("rename_doc", { from, to }),
   deleteDoc: (id: string) => invoke<void>("delete_doc", { id }),
+  /** Saves an image beside the doc and returns its doc-relative path, e.g. "img/shot.png". */
+  saveImage: (doc: string, name: string, data: ArrayBuffer) =>
+    invoke<string>("save_image", data, { headers: { doc: encodeURIComponent(doc), name: encodeURIComponent(name) } }),
+  /** Copies image files in beside the doc; one `{ Ok: path }` or `{ Err: message }` per file. */
+  importImages: (doc: string, paths: string[]) => invoke<Saved[]>("import_images", { doc, paths }),
+  /** Saves the image on the system clipboard (Linux), or returns null when there isn't one. */
+  pasteImage: (doc: string, name: string) => invoke<string | null>("paste_image", { doc, name }),
   search: (query: string) => invoke<Hit[]>("search", { query }),
   render: (md: string) => invoke<string>("render", { md }),
   comments: (doc: string) => invoke<Comment[]>("list_comments", { doc }),

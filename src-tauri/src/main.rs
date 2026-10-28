@@ -4,6 +4,7 @@ mod comments;
 mod docs;
 
 use rusqlite::Connection;
+use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
@@ -217,6 +218,57 @@ fn save_doc(s: State<AppState>, id: String, content: String, mtime: String, forc
     with_root(&s, |r| docs::save(&r.dir, &id, &content, &mtime, force))
 }
 
+/// Raw-body command so image bytes skip JSON. The doc id and file name come URI-encoded in headers.
+#[tauri::command]
+fn save_image(s: State<AppState>, request: tauri::ipc::Request) -> Result<String, String> {
+    // The postMessage fallback (used if the IPC custom protocol fails) delivers the bytes as a JSON array.
+    let bytes = match request.body() {
+        tauri::ipc::InvokeBody::Raw(b) => std::borrow::Cow::Borrowed(b.as_slice()),
+        tauri::ipc::InvokeBody::Json(v) => std::borrow::Cow::Owned(Vec::<u8>::deserialize(v).map_err(|_| "Expected image data")?),
+    };
+    let header = |k: &str| -> Result<String, String> {
+        let v = request.headers().get(k).and_then(|v| v.to_str().ok()).ok_or(format!("Missing {k}"))?;
+        Ok(percent_encoding::percent_decode_str(v).decode_utf8_lossy().into_owned())
+    };
+    let (doc, name) = (header("doc")?, header("name")?);
+    with_root(&s, |r| docs::save_image(&r.dir, &doc, &name, &bytes))
+}
+
+/// Copies dropped files in beside the doc (native drag-drop hands over paths). One result per path, in order.
+#[tauri::command]
+fn import_images(s: State<AppState>, doc: String, paths: Vec<String>) -> Vec<Result<String, String>> {
+    let r = s.lock().unwrap();
+    paths
+        .iter()
+        .map(|p| {
+            let p = std::path::Path::new(p);
+            let bytes = std::fs::read(p).map_err(|e| e.to_string())?;
+            docs::save_image(&r.dir, &doc, &p.file_name().unwrap_or_default().to_string_lossy(), &bytes)
+        })
+        .collect()
+}
+
+/// Saves the image on the system clipboard as `name` (a .png). Ok(None) when there isn't one.
+/// For WebKitGTK, whose paste event comes back empty when the clipboard holds an image.
+#[tauri::command]
+fn paste_image(s: State<AppState>, doc: String, name: String) -> Result<Option<String>, String> {
+    let Some(png) = clipboard_png()? else { return Ok(None) };
+    with_root(&s, |r| docs::save_image(&r.dir, &doc, &name, &png).map(Some))
+}
+
+/// Sync commands run on the main thread, which GTK requires.
+#[cfg(target_os = "linux")]
+fn clipboard_png() -> Result<Option<Vec<u8>>, String> {
+    let Some(img) = gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD).wait_for_image() else { return Ok(None) };
+    img.save_to_bufferv("png", &[]).map(Some).map_err(|e| e.to_string())
+}
+
+/// WKWebView puts clipboard images in the paste event itself.
+#[cfg(not(target_os = "linux"))]
+fn clipboard_png() -> Result<Option<Vec<u8>>, String> {
+    Ok(None)
+}
+
 #[tauri::command]
 fn search(s: State<AppState>, query: String) -> Result<Vec<docs::Hit>, String> {
     with_root(&s, |r| Ok(docs::search(&r.dir, &query)))
@@ -316,9 +368,37 @@ fn quit(app: AppHandle) {
     app.exit(0)
 }
 
+/// GTK's predefined Cut/Copy/Paste/Select All fake keystrokes with xdo, which does nothing on Wayland, so on Linux
+/// they're plain items that run WebKit's editing commands instead. No accelerators: WebKit already handles the keys.
+#[cfg(target_os = "linux")]
+fn run_edit_command(app: &AppHandle, id: &str) -> bool {
+    let cmd = match id {
+        "cut" => "Cut",
+        "copy" => "Copy",
+        "paste" => "Paste",
+        "select-all" => "SelectAll",
+        _ => return false,
+    };
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.with_webview(move |pw| {
+            use webkit2gtk::WebViewExt;
+            pw.inner().execute_editing_command(cmd)
+        });
+    }
+    true
+}
+
 fn menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let item = |id: &str, text: &str, accel: &str| MenuItem::with_id(app, id, text, true, Some(accel));
     let sep = || PredefinedMenuItem::separator(app);
+    #[cfg(target_os = "linux")]
+    let (cut, copy, paste, select_all) = {
+        let plain = |id: &str, text: &str| MenuItem::with_id(app, id, text, true, None::<&str>);
+        (plain("cut", "Cut")?, plain("copy", "Copy")?, plain("paste", "Paste")?, plain("select-all", "Select All")?)
+    };
+    #[cfg(not(target_os = "linux"))]
+    let (cut, copy, paste, select_all) =
+        (PredefinedMenuItem::cut(app, None)?, PredefinedMenuItem::copy(app, None)?, PredefinedMenuItem::paste(app, None)?, PredefinedMenuItem::select_all(app, None)?);
     Menu::with_items(
         app,
         &[
@@ -361,10 +441,10 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
                     &PredefinedMenuItem::undo(app, None)?,
                     &PredefinedMenuItem::redo(app, None)?,
                     &sep()?,
-                    &PredefinedMenuItem::cut(app, None)?,
-                    &PredefinedMenuItem::copy(app, None)?,
-                    &PredefinedMenuItem::paste(app, None)?,
-                    &PredefinedMenuItem::select_all(app, None)?,
+                    &cut,
+                    &copy,
+                    &paste,
+                    &select_all,
                 ],
             )?,
             &Submenu::with_items(
@@ -404,6 +484,10 @@ fn main() {
             app.manage::<AppState>(Mutex::new(root));
             app.set_menu(menu(app.handle())?)?;
             app.on_menu_event(|app, e| {
+                #[cfg(target_os = "linux")]
+                if run_edit_command(app, e.id().0.as_str()) {
+                    return;
+                }
                 let _ = app.emit("menu", e.id().0.as_str());
             });
             Ok(())
@@ -411,7 +495,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             root_dir, create_doc, rename_doc, delete_doc, reveal_root, tree, read_doc, save_doc, search, render, list_comments, add_comment, edit_comment,
             delete_comment, resolve_comment, get_settings, set_settings, list_fonts, open_url, print, quit, docs_location,
-            set_docs_folder
+            set_docs_folder, save_image, import_images, paste_image
         ])
         .run(tauri::generate_context!())
         .expect("error while running app");
