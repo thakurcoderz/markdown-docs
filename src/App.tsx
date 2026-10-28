@@ -3,19 +3,19 @@ import { listen } from "@tauri-apps/api/event"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { ask } from "@tauri-apps/plugin-dialog"
 import { toast } from "sonner"
-import { FileDown, MessageSquarePlus, MessageSquareText, PanelLeft, PanelRight, Plus, Save } from "lucide-react"
+import { MessageSquarePlus, Plus } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { CommentsPanel, type Compose } from "@/components/CommentsPanel"
+import { DocHeader, type Mode } from "@/components/DocHeader"
 import { Editor } from "@/components/Editor"
 import { NameDialog, type NameRequest } from "@/components/NameDialog"
 import { SearchDialog } from "@/components/SearchDialog"
 import { ResizeHandle } from "@/components/ResizeHandle"
 import { SettingsPage } from "@/components/SettingsPage"
-import { IconButton, Sidebar } from "@/components/Sidebar"
+import { Sidebar } from "@/components/Sidebar"
 import { api, type Comment, type Doc, type Location, type TreeNode } from "@/lib/api"
 import { docLink } from "@/lib/links"
 import { anchor, enhance, findText, headingEls, readHeadings, selectionAnchor, type Heading } from "@/lib/preview"
@@ -24,7 +24,6 @@ import { mod } from "@/lib/platform"
 import { checkForUpdates } from "@/lib/updates"
 import { cn } from "@/lib/utils"
 
-type Mode = "preview" | "split" | "markdown"
 const err = (e: unknown) => toast.error(String(e))
 const AUTOSAVE_MS = 1000
 /** Below this window width the right panel opens over the doc instead of beside it. */
@@ -500,25 +499,13 @@ export default function App() {
       {settingsOpen && <SettingsPage settings={settings} onChange={updateSettings} onClose={closeSettings} location={location} onDocsFolder={changeDocsFolder} onCheckUpdates={() => checkUpdates(false)} />}
 
       <main className={cn("flex min-h-0 min-w-0 flex-1 flex-col", settingsOpen && "hidden")}>
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
-          <IconButton label={`${showSidebar ? "Hide" : "Show"} sidebar (${mod}\\)`} onClick={toggleSidebar}><PanelLeft /></IconButton>
-          <h1 className="min-w-0 flex-1 truncate text-sm font-semibold">{doc ?? ""}</h1>
-          {doc && (
-            <>
-              {dirty && (autosavePaused
-                ? <Button size="sm" onClick={() => save()}><Save /> Save</Button>
-                : <span className="text-xs text-muted-foreground">Saving…</span>)}
-              <ToggleGroup variant="outline" size="sm" value={[mode]} onValueChange={(v: string[]) => v[0] && switchMode(v[0] as Mode)}>
-                <ToggleGroupItem value="preview">Preview</ToggleGroupItem>
-                <ToggleGroupItem value="split">Split</ToggleGroupItem>
-                <ToggleGroupItem value="markdown">Markdown</ToggleGroupItem>
-              </ToggleGroup>
-              <Button size="sm" variant="ghost" onClick={startNote}><MessageSquareText /> Add note</Button>
-              <Button size="sm" variant="ghost" onClick={exportPdf}><FileDown /> Export PDF</Button>
-            </>
-          )}
-          {doc && <IconButton label={`${showPanel ? "Hide" : "Show"} panel (${mod}⇧\\)`} onClick={togglePanel}><PanelRight /></IconButton>}
-        </header>
+        <DocHeader
+          doc={doc} mode={mode} dirty={dirty} paused={autosavePaused} compact={narrow}
+          sidebarOpen={showSidebar} panelOpen={showPanel}
+          onMode={switchMode} onSave={() => save()} onToggleSidebar={toggleSidebar} onTogglePanel={togglePanel}
+          onAddNote={startNote} onExportPdf={exportPdf} onRename={() => doc && renameDoc(doc)}
+          onReveal={() => api.revealRoot().catch(err)} onFocus={() => setFocus(true)} onDelete={() => doc && deleteDoc(doc)}
+        />
         <div className="flex min-h-0 flex-1">
           {doc && mode !== "preview" && (
             <div className={cn("min-h-0 min-w-0 flex-1", mode === "split" && "border-r")}>

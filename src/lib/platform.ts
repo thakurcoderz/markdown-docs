@@ -3,6 +3,7 @@ export const isMac = navigator.userAgent.includes("Mac")
 
 /** Prefix for shortcut labels: "⌘K" on macOS, "Ctrl+K" elsewhere. */
 export const mod = isMac ? "⌘" : "Ctrl+"
+export const shift = isMac ? "⇧" : "Shift+"
 
 export const fileManager = isMac ? "Finder" : "Files"
 
