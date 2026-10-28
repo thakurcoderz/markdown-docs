@@ -156,16 +156,35 @@ pub fn create(root: &Path, id: &str) -> Result<String, String> {
     Ok(id_of(root, &p))
 }
 
-pub fn rename(root: &Path, from: &str, to: &str) -> Result<String, String> {
-    let src = doc_path(root, from)?;
-    let dst = new_doc_path(root, to)?;
-    fs::rename(&src, &dst).map_err(|e| e.to_string())?;
-    Ok(id_of(root, &dst))
+/// Path for a folder that doesn't exist yet, with the same naming rules as docs. Creates missing parents.
+fn new_folder_path(root: &Path, id: &str) -> Result<PathBuf, String> {
+    let ok = Path::new(id).components().all(|c| matches!(c, Component::Normal(s) if !s.to_string_lossy().starts_with('.')));
+    if id.is_empty() || !ok {
+        return Err("Use a plain name like \"notes\" or \"team/2026\"".into());
+    }
+    let p = root.join(id);
+    if p.exists() {
+        return Err(format!("\"{id}\" already exists"));
+    }
+    fs::create_dir_all(p.parent().unwrap()).map_err(|e| e.to_string())?;
+    if !fs::canonicalize(p.parent().unwrap()).map_err(|e| e.to_string())?.starts_with(root) {
+        return Err("Folder is outside the docs folder".into());
+    }
+    Ok(p)
 }
 
-/// Moves the doc to the macOS Trash so a mistaken delete is recoverable.
+/// Moves the doc to the Trash so a mistaken delete is recoverable.
 pub fn delete(root: &Path, id: &str) -> Result<(), String> {
     trash::delete(doc_path(root, id)?).map_err(|e| e.to_string())
+}
+
+/// Moves a folder and everything in it to the Trash.
+pub fn delete_folder(root: &Path, id: &str) -> Result<(), String> {
+    let p = folder_path(root, id)?;
+    if p == root {
+        return Err("Can't delete the docs folder itself".into());
+    }
+    trash::delete(p).map_err(|e| e.to_string())
 }
 
 /// Doc ids always use '/', matching `tree`, even where the OS separator is '\'.
@@ -230,26 +249,36 @@ fn folder_path(root: &Path, id: &str) -> Result<PathBuf, String> {
 }
 
 /// Moves a doc (or a folder, with everything in it) into folder `to` ("" = the top level), keeping its name.
-/// Never overwrites, and a folder can't go inside itself. Afterwards relative links and images in every doc
-/// are rewritten so they still point at the same files. Returns the moved item's new id.
+/// See `relocate`. Returns the moved item's new id.
 pub fn move_item(root: &Path, from: &str, folder: bool, to: &str) -> Result<String, String> {
+    let src = if folder { folder_path(root, from)? } else { doc_path(root, from)? };
+    let dst_dir = folder_path(root, to)?;
+    if src.parent() == Some(dst_dir.as_path()) {
+        return Ok(from.to_string());
+    }
+    let name = from.rsplit('/').next().unwrap();
+    relocate(root, from, folder, &if to.is_empty() { name.to_string() } else { format!("{to}/{name}") })
+}
+
+/// Moves or renames a doc or folder to the id `to` ("team/standup"); missing parent folders are created.
+/// Never overwrites, and a folder can't go inside itself. Afterwards relative links and images in every doc
+/// are rewritten so they still point at the same files. Returns the new id.
+pub fn relocate(root: &Path, from: &str, folder: bool, to: &str) -> Result<String, String> {
     let src = if folder { folder_path(root, from)? } else { doc_path(root, from)? };
     if src == root {
         return Err("Can't move the docs folder itself".into());
     }
-    let dst_dir = folder_path(root, to)?;
-    if folder && dst_dir.starts_with(&src) {
-        return Err("A folder can't be moved into itself".into());
-    }
-    if src.parent() == Some(dst_dir.as_path()) {
+    let to = to.trim().trim_matches('/');
+    let wanted = if folder { root.join(to) } else { root.join(format!("{}.md", to.trim_end_matches(".md"))) };
+    if wanted == src {
         return Ok(from.to_string());
     }
-    let dst = dst_dir.join(src.file_name().unwrap());
+    if folder && wanted.starts_with(&src) {
+        return Err("A folder can't be moved into itself".into());
+    }
+    let dst = if folder { new_folder_path(root, to)? } else { new_doc_path(root, to)? };
     let id = |p: &Path| if folder { rel_path(root, p) } else { id_of(root, p) };
     let (old, new) = (id(&src), id(&dst));
-    if dst.exists() {
-        return Err(format!("“{new}” already exists there"));
-    }
     // Every doc's text and where it lives now, read before anything moves.
     let mut docs = vec![];
     fn flatten(nodes: Vec<Node>, out: &mut Vec<String>) {
@@ -382,9 +411,9 @@ mod tests {
         assert_eq!(create(&root, "team/standup.md").unwrap(), "team/standup");
         assert!(create(&root, "team/standup").is_err(), "duplicate");
         assert!(create(&root, "../evil").is_err() && create(&root, ".hidden").is_err() && create(&root, " ").is_err());
-        assert_eq!(rename(&root, "team/standup", "daily/standup").unwrap(), "daily/standup");
+        assert_eq!(relocate(&root, "team/standup", false, "daily/standup").unwrap(), "daily/standup");
         assert!(root.join("daily/standup.md").exists() && !root.join("team/standup.md").exists());
-        assert!(rename(&root, "a", "daily/standup").is_err(), "no overwrite on rename");
+        assert!(relocate(&root, "a", false, "daily/standup").is_err(), "no overwrite on rename");
         fs::write(root.join("b.md"), "Alpha\nbeta GAMMA\ngamma again").unwrap();
         let hits = search(&root, "gamma");
         assert_eq!(hits.len(), 1);
@@ -436,6 +465,14 @@ mod tests {
         assert_eq!(read("standup.md"), "![s](archive/team/img/s.png) [n](notes.md) [r](archive/team/retro.md)");
         assert_eq!(read("archive/team/retro.md"), "[s](../../standup.md)");
 
+        // Renaming a folder fixes links into it; renaming a doc fixes links to it.
+        assert_eq!(relocate(&root, "archive/team", true, "archive/crew").unwrap(), "archive/crew");
+        assert_eq!(read("standup.md"), "![s](archive/crew/img/s.png) [n](notes.md) [r](archive/crew/retro.md)");
+        assert_eq!(relocate(&root, "standup", false, "daily").unwrap(), "daily");
+        assert_eq!(read("archive/crew/retro.md"), "[s](../../daily.md)");
+        assert!(relocate(&root, "archive", true, "archive/crew/x").is_err(), "into itself");
+        assert!(relocate(&root, "archive", true, ".hidden").is_err() && relocate(&root, "archive", true, "../out").is_err());
+
         // Folder names with dots keep them.
         fs::create_dir_all(root.join("v1.2")).unwrap();
         fs::write(root.join("v1.2/a.md"), "").unwrap();
@@ -443,9 +480,10 @@ mod tests {
 
         // Same folder is a no-op; clashes, self-nesting and escapes are refused.
         assert_eq!(move_item(&root, "notes", false, "").unwrap(), "notes");
-        fs::write(root.join("archive/team/notes.md"), "").unwrap();
-        assert!(move_item(&root, "notes", false, "archive/team").is_err(), "clash");
-        assert!(move_item(&root, "archive", true, "archive/team").is_err(), "into itself");
+        assert_eq!(relocate(&root, "notes", false, "notes").unwrap(), "notes");
+        fs::write(root.join("archive/crew/notes.md"), "").unwrap();
+        assert!(move_item(&root, "notes", false, "archive/crew").is_err(), "clash");
+        assert!(move_item(&root, "archive", true, "archive/crew").is_err(), "into itself");
         assert!(move_item(&root, "archive", true, "archive").is_err(), "into itself");
         assert!(move_item(&root, "notes", false, "../").is_err() && move_item(&root, "", true, "archive").is_err());
         fs::remove_dir_all(dir).unwrap();

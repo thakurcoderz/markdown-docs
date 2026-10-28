@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils"
 
 type Props = {
   settings: Settings
-  onChange: (s: Settings) => void
+  onChange: (patch: Partial<Settings>) => void
   onClose: () => void
   location: Location | null
   /** Switches the docs folder; `null` = the default one. */
@@ -92,7 +92,7 @@ export function SettingsPage({ settings, onChange, onClose, location, onDocsFold
   }, [onClose])
 
   return (
-    <div className="col-span-2 grid min-h-0 grid-cols-[200px_minmax(0,1fr)]">
+    <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[200px_minmax(0,1fr)]">
       <nav className="flex flex-col gap-1 border-r p-3" aria-label="Settings sections">
         <Button variant="ghost" size="sm" className="mb-2 justify-start" onClick={onClose}><ArrowLeft /> Back to docs</Button>
         {SECTIONS.map((s) => (
@@ -108,10 +108,10 @@ export function SettingsPage({ settings, onChange, onClose, location, onDocsFold
             <section className="mt-6">
               <h2 className="text-sm font-medium text-muted-foreground">Appearance</h2>
               <Row title="Interface & document font" description="Used for the app and for rendered docs. Pick any font installed on your computer.">
-                <FontPicker value={settings.appFont} fonts={fonts} placeholder="Default (Geist)" onPick={(appFont) => onChange({ ...settings, appFont })} />
+                <FontPicker value={settings.appFont} fonts={fonts} placeholder="Default (Geist)" onPick={(appFont) => onChange({ appFont })} />
               </Row>
               <Row title="Code font" description="Used in the Markdown editor and code blocks. Monospaced fonts work best.">
-                <FontPicker value={settings.codeFont} fonts={fonts} placeholder="Default (SF Mono)" onPick={(codeFont) => onChange({ ...settings, codeFont })} />
+                <FontPicker value={settings.codeFont} fonts={fonts} placeholder="Default (SF Mono)" onPick={(codeFont) => onChange({ codeFont })} />
               </Row>
               <div className="mt-6 rounded-lg border p-5">
                 <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Preview</p>
@@ -157,7 +157,7 @@ export function SettingsPage({ settings, onChange, onClose, location, onDocsFold
             <section className="mt-6">
               <h2 className="text-sm font-medium text-muted-foreground">Updates</h2>
               <Row title="Check for updates automatically" description="Looks for a new version each time the app opens and offers to install it. Nothing is installed without asking.">
-                <Switch checked={settings.checkUpdates} onCheckedChange={(checkUpdates) => onChange({ ...settings, checkUpdates })} aria-label="Check for updates automatically" />
+                <Switch checked={settings.checkUpdates} onCheckedChange={(checkUpdates) => onChange({ checkUpdates })} aria-label="Check for updates automatically" />
               </Row>
               <Row title={`Markdown Docs ${version}`} description="Updates come from the project’s GitHub releases and are verified with a signature before they’re installed.">
                 <Button variant="outline" onClick={onCheckUpdates}><RefreshCw /> Check now</Button>

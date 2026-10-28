@@ -3,28 +3,33 @@ import { listen } from "@tauri-apps/api/event"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { ask } from "@tauri-apps/plugin-dialog"
 import { toast } from "sonner"
-import { FileDown, MessageSquarePlus, MessageSquareText, Plus, Save } from "lucide-react"
+import { MessageSquarePlus } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { CommentsPanel, type Compose } from "@/components/CommentsPanel"
+import { DocHeader, type Mode } from "@/components/DocHeader"
 import { Editor } from "@/components/Editor"
 import { NameDialog, type NameRequest } from "@/components/NameDialog"
 import { SearchDialog } from "@/components/SearchDialog"
+import { ResizeHandle } from "@/components/ResizeHandle"
 import { SettingsPage } from "@/components/SettingsPage"
 import { Sidebar } from "@/components/Sidebar"
+import { Welcome } from "@/components/Welcome"
 import { api, type Comment, type Doc, type Location, type TreeNode } from "@/lib/api"
 import { docLink } from "@/lib/links"
 import { anchor, enhance, findText, headingEls, readHeadings, selectionAnchor, type Heading } from "@/lib/preview"
 import { applySettings, DEFAULTS, loadSettings, saveSettings, type Settings } from "@/lib/settings"
+import { mod } from "@/lib/platform"
+import { addRecent, moveRecent, recentDocs } from "@/lib/recent"
 import { checkForUpdates } from "@/lib/updates"
 import { cn } from "@/lib/utils"
 
-type Mode = "preview" | "split" | "markdown"
 const err = (e: unknown) => toast.error(String(e))
 const AUTOSAVE_MS = 1000
+/** Below this window width the right panel opens over the doc instead of beside it. */
+const NARROW = 1040
 
 export default function App() {
   const [tree, setTree] = useState<TreeNode[]>([])
@@ -47,6 +52,12 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>(DEFAULTS)
   const [location, setLocation] = useState<Location | null>(null)
   const [fab, setFab] = useState<{ x: number; y: number } | null>(null)
+  // Layout: focus mode hides both side panels; in narrow windows the right panel is an overlay, closed by default.
+  const [narrow, setNarrow] = useState(() => innerWidth < NARROW)
+  const [focus, setFocus] = useState(false)
+  const [panelOverlay, setPanelOverlay] = useState(false)
+  // Live widths while dragging a panel edge; saved to settings when the drag ends.
+  const [widths, setWidths] = useState({ sidebar: DEFAULTS.sidebarWidth, panel: DEFAULTS.panelWidth })
   // Set when an autosave fails or an overwrite is declined; ⌘S / the Save button retries and clears it.
   const [autosavePaused, setAutosavePaused] = useState(false)
 
@@ -116,6 +127,7 @@ export default function App() {
     try { d = await api.readDoc(id) } catch (e) { return err(e) }
     // Keep the current editing mode when hopping between docs, unless a mode is requested.
     const m = startMode ?? S.current.mode
+    addRecent(id)
     setDoc(id); setDisk(d); setDraft(d.content); setMode(m)
     setActive(null); setCompose(null); setFab(null); setAutosavePaused(false)
     S.current = { ...S.current, doc: id, disk: d, draft: d.content, mode: m, dirty: false }
@@ -169,7 +181,7 @@ export default function App() {
       return true
     } catch (e) {
       setAutosavePaused(true)
-      toast.error(`Couldn’t save: ${e}`, { description: auto ? "Autosave is paused. Press ⌘S to retry." : undefined, duration: 10_000 })
+      toast.error(`Couldn’t save: ${e}`, { description: auto ? `Autosave is paused. Press ${mod}S to retry.` : undefined, duration: 10_000 })
       return false
     } finally {
       saving.current = false
@@ -242,36 +254,29 @@ export default function App() {
       },
     })
 
-  const renameDoc = (id: string) =>
-    setNameReq({
-      title: "Rename doc", action: "Rename", initial: id,
-      submit: async (name) => {
-        if (id === S.current.doc && !(await save())) throw "Save your changes first"
-        const next = await api.renameDoc(id, name)
-        if (S.current.doc === id) { setDoc(next); S.current.doc = next }
-        await refreshTree()
-      },
-    })
-
   // Set while a move runs, so the watcher's sync doesn't mistake the open doc's old path for a deletion.
   const moving = useRef(false)
 
-  const moveItem = async (id: string, folder: boolean, to: string) => {
+  /**
+   * Runs a move or rename of `id` (`expected` = its new id). The open doc follows to its new path and is reloaded,
+   * since links in it may have been rewritten. Throws on failure, except "Moved, but some links couldn't be
+   * updated", where the files did move.
+   */
+  const relocate = async (id: string, folder: boolean, run: () => Promise<string>, expected: string) => {
     const cur = S.current.doc
-    // Links in the open doc may be rewritten, so its edits are saved first.
-    if (cur && S.current.dirty && !(await save())) return
+    if (cur && S.current.dirty && !(await save())) throw "Save your changes first"
     moving.current = true
     let next: string
     try {
-      next = await api.moveItem(id, folder, to)
+      next = await run()
     } catch (e) {
+      if (!String(e).startsWith("Moved,")) throw e
       err(e)
-      // "Moved, but some links couldn't be updated": the files did move.
-      if (!String(e).startsWith("Moved,")) return void (moving.current = false)
-      const name = id.split("/").pop()!
-      next = to ? `${to}/${name}` : name
+      next = expected
+    } finally {
+      moving.current = false
     }
-    moving.current = false
+    moveRecent(id, folder, next)
     if (cur && (folder ? cur.startsWith(id + "/") : cur === id)) {
       const nd = next + cur.slice(id.length)
       setDoc(nd)
@@ -279,6 +284,43 @@ export default function App() {
       await loadComments(nd)
     }
     await syncFromDisk()
+  }
+
+  const moveItem = (id: string, folder: boolean, to: string) => {
+    const name = id.split("/").pop()!
+    relocate(id, folder, () => api.moveItem(id, folder, to), to ? `${to}/${name}` : name).catch(err)
+  }
+
+  const renameItem = (id: string, folder: boolean) =>
+    setNameReq({
+      title: folder ? "Rename folder" : "Rename doc", action: "Rename", initial: id,
+      submit: (name) => {
+        const to = name.trim().replace(/^\/+|\/+$/g, "").replace(/\.md$/, "")
+        return relocate(id, folder, () => (folder ? api.renameFolder(id, name) : api.renameDoc(id, name)), to)
+      },
+    })
+
+  const newDocIn = (folder: string) =>
+    setNameReq({
+      title: "New doc", action: "Create", initial: `${folder}/`, select: "end",
+      submit: async (name) => {
+        const id = await api.createDoc(name)
+        await refreshTree()
+        await openDoc(id, S.current.mode === "preview" ? "markdown" : S.current.mode)
+      },
+    })
+
+  const deleteFolder = async (id: string) => {
+    const inside = (d: string) => d.startsWith(id + "/")
+    const count = (nodes: TreeNode[]): number => nodes.reduce((n, c) => n + (c.children ? count(c.children) : inside(c.id) ? 1 : 0), 0)
+    const n = count(tree)
+    const unsaved = S.current.doc && inside(S.current.doc) && S.current.dirty ? " Unsaved changes will be lost." : ""
+    const ok = await ask(`Move the folder “${id}” and its ${n} ${n === 1 ? "doc" : "docs"} to the Trash? Their comments will be deleted.${unsaved}`,
+      { title: "Delete folder", kind: "warning", okLabel: "Move to Trash", cancelLabel: "Cancel" })
+    if (!ok) return
+    try { await api.deleteFolder(id) } catch (e) { return err(e) }
+    if (S.current.doc && inside(S.current.doc)) closeDoc()
+    refreshTree()
   }
 
   const deleteDoc = async (id: string) => {
@@ -308,15 +350,59 @@ export default function App() {
     } catch (e) { err(e) }
   }
 
-  const updateSettings = (next: Settings) => {
+  /** Merges `patch` into the latest settings (not this render's copy, so back-to-back changes don't undo each other). */
+  const latestSettings = useRef(settings)
+  const updateSettings = (patch: Partial<Settings>) => {
+    const next = { ...latestSettings.current, ...patch }
+    latestSettings.current = next
     setSettings(next)
     applySettings(next)
     saveSettings(next).catch(err)
   }
 
+  // ---------- Layout ----------
+
+  useEffect(() => setWidths({ sidebar: settings.sidebarWidth, panel: settings.panelWidth }), [settings.sidebarWidth, settings.panelWidth])
+  useEffect(() => {
+    const onResize = () => setNarrow(innerWidth < NARROW)
+    addEventListener("resize", onResize)
+    return () => removeEventListener("resize", onResize)
+  }, [])
+  useEffect(() => {
+    if (!focus) return
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !document.querySelector("[role=dialog]") && setFocus(false)
+    addEventListener("keydown", onKey)
+    return () => removeEventListener("keydown", onKey)
+  }, [focus])
+
+  // Settings is a full page with its own navigation, so the docs sidebar steps aside.
+  const showSidebar = settings.sidebarOpen && !focus && !settingsOpen
+  const showPanel = !!doc && !focus && (narrow ? panelOverlay : settings.panelOpen)
+  const toggleSidebar = () => (setFocus(false), updateSettings({ sidebarOpen: !showSidebar }))
+  const togglePanel = () => {
+    setFocus(false)
+    if (narrow) setPanelOverlay(!showPanel)
+    else updateSettings({ panelOpen: !showPanel })
+  }
+  /** Shows the right panel on `t` (e.g. when starting a comment), opening it if hidden. */
+  const openTab = (t: string) => {
+    setTab(t)
+    setFocus(false)
+    if (narrow) setPanelOverlay(true)
+    else if (!settings.panelOpen) updateSettings({ panelOpen: true })
+  }
+
   const checkUpdates = (quiet: boolean) => checkForUpdates({ quiet, beforeRestart: confirmDiscard })
 
-  const startNote = () => { setCompose({ kind: "new", quote: null, start: null }); setTab("comments") }
+  /** Recent docs that still exist, for the welcome screen. */
+  const recentInTree = () => {
+    const ids = new Set<string>()
+    const walk = (nodes: TreeNode[]) => nodes.forEach((n) => (n.children ? walk(n.children) : ids.add(n.id)))
+    walk(tree)
+    return recentDocs().filter((id) => ids.has(id)).slice(0, 6)
+  }
+
+  const startNote = () => { setCompose({ kind: "new", quote: null, start: null }); openTab("comments") }
 
   // ---------- Selection → floating Comment button ----------
 
@@ -340,7 +426,7 @@ export default function App() {
     if (!r) return
     const { quote, start } = selectionAnchor(previewRef.current!, r)
     setCompose({ kind: "new", quote, start })
-    setTab("comments")
+    openTab("comments")
     getSelection()?.removeAllRanges()
     setFab(null)
   }
@@ -359,8 +445,8 @@ export default function App() {
 
   // ---------- Global wiring ----------
 
-  const A = useRef({ save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading, openLink, checkUpdates })
-  A.current = { save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading, openLink, checkUpdates }
+  const A = useRef({ save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading, openLink, checkUpdates, toggleSidebar, togglePanel, setFocus })
+  A.current = { save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading, openLink, checkUpdates, toggleSidebar, togglePanel, setFocus }
 
   useEffect(() => {
     api.rootDir().then((d) => (rootDir.current = d), err)
@@ -369,6 +455,7 @@ export default function App() {
       if (loc.unavailable) toast.warning("Your docs folder couldn’t be opened", { description: `Using the default folder instead of ${loc.unavailable}. You can choose it again in Settings.`, duration: 10000 })
     }, err)
     loadSettings().then((s) => {
+      latestSettings.current = s
       setSettings(s)
       applySettings(s)
       // Dev builds would only ever offer to replace themselves with the latest release.
@@ -409,6 +496,9 @@ export default function App() {
         else if (payload === "reveal") api.revealRoot().catch(err)
         else if (payload === "export-pdf") a.exportPdf()
         else if (payload === "toggle-mode") a.switchMode(S.current.mode === "preview" ? "markdown" : "preview")
+        else if (payload === "toggle-sidebar") a.toggleSidebar()
+        else if (payload === "toggle-panel") a.togglePanel()
+        else if (payload === "focus-mode") a.setFocus((f) => !f)
       }),
       getCurrentWindow().onCloseRequested(async (e) => {
         if (!(await A.current.confirmDiscard())) e.preventDefault()
@@ -434,32 +524,31 @@ export default function App() {
   const openCount = comments.filter((c) => c.parent_id == null && !c.resolved).length
 
   return (
-    <div className="grid h-screen grid-cols-[250px_minmax(0,1fr)_300px] overflow-hidden select-none">
-      <Sidebar
-        tree={tree} current={doc} onOpen={openDoc} onNew={newDoc} onRename={renameDoc} onMove={moveItem} onDelete={deleteDoc}
+    <div className="relative flex h-screen overflow-hidden select-none">
+      {showSidebar && <Sidebar
+        style={{ width: widths.sidebar }}
+        tree={tree} current={doc} onOpen={openDoc} onNew={newDoc} onRename={(id) => renameItem(id, false)} onMove={moveItem} onDelete={deleteDoc}
+        onRenameFolder={(id) => renameItem(id, true)} onDeleteFolder={deleteFolder} onNewIn={newDocIn}
         onSearch={() => setSearchOpen(true)} onSettings={() => setSettingsOpen(true)} onReveal={() => api.revealRoot().catch(err)}
-      />
+      />}
+      {showSidebar && (
+        <ResizeHandle
+          side="left" width={widths.sidebar} min={180} max={420} defaultWidth={DEFAULTS.sidebarWidth}
+          onResize={(sidebar) => setWidths((w) => ({ ...w, sidebar }))}
+          onDone={(sidebarWidth) => updateSettings({ sidebarWidth })}
+        />
+      )}
 
       {settingsOpen && <SettingsPage settings={settings} onChange={updateSettings} onClose={closeSettings} location={location} onDocsFolder={changeDocsFolder} onCheckUpdates={() => checkUpdates(false)} />}
 
-      <main className={cn("flex min-h-0 min-w-0 flex-col", settingsOpen && "hidden")}>
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-          <h1 className="min-w-0 flex-1 truncate text-sm font-semibold">{doc ?? ""}</h1>
-          {doc && (
-            <>
-              {dirty && (autosavePaused
-                ? <Button size="sm" onClick={() => save()}><Save /> Save</Button>
-                : <span className="text-xs text-muted-foreground">Saving…</span>)}
-              <ToggleGroup variant="outline" size="sm" value={[mode]} onValueChange={(v: string[]) => v[0] && switchMode(v[0] as Mode)}>
-                <ToggleGroupItem value="preview">Preview</ToggleGroupItem>
-                <ToggleGroupItem value="split">Split</ToggleGroupItem>
-                <ToggleGroupItem value="markdown">Markdown</ToggleGroupItem>
-              </ToggleGroup>
-              <Button size="sm" variant="ghost" onClick={startNote}><MessageSquareText /> Add note</Button>
-              <Button size="sm" variant="ghost" onClick={exportPdf}><FileDown /> Export PDF</Button>
-            </>
-          )}
-        </header>
+      <main className={cn("flex min-h-0 min-w-0 flex-1 flex-col", settingsOpen && "hidden")}>
+        <DocHeader
+          doc={doc} mode={mode} dirty={dirty} paused={autosavePaused} compact={narrow}
+          sidebarOpen={showSidebar} panelOpen={showPanel}
+          onMode={switchMode} onSave={() => save()} onToggleSidebar={toggleSidebar} onTogglePanel={togglePanel}
+          onAddNote={startNote} onExportPdf={exportPdf} onRename={() => doc && renameItem(doc, false)}
+          onReveal={() => api.revealRoot().catch(err)} onFocus={() => setFocus(true)} onDelete={() => doc && deleteDoc(doc)}
+        />
         <div className="flex min-h-0 flex-1">
           {doc && mode !== "preview" && (
             <div className={cn("min-h-0 min-w-0 flex-1", mode === "split" && "border-r")}>
@@ -472,17 +561,26 @@ export default function App() {
             className={cn("flex min-h-0 min-w-0 flex-1 flex-col overflow-auto", doc && mode === "markdown" && "hidden")}
           >
             <article ref={previewRef} className={cn("markdown select-text", !doc && "hidden")} />
-            {!doc && (
-              <div className="m-auto grid justify-items-center gap-3 text-center text-sm text-muted-foreground">
-                <p>{tree.length ? "Pick a doc from the sidebar, or start a new one." : "Create your first doc to get started."}</p>
-                <Button onClick={newDoc}><Plus /> New doc</Button>
-              </div>
-            )}
+            {!doc && <Welcome hasDocs={tree.length > 0} recent={recentInTree()} onNew={newDoc} onSearch={() => setSearchOpen(true)} onOpen={openDoc} />}
           </div>
         </div>
       </main>
 
-      <aside className={cn("flex min-h-0 flex-col border-l bg-sidebar", settingsOpen && "hidden")}>
+      {showPanel && !settingsOpen && !narrow && (
+        <ResizeHandle
+          side="right" width={widths.panel} min={240} max={520} defaultWidth={DEFAULTS.panelWidth}
+          onResize={(panel) => setWidths((w) => ({ ...w, panel }))}
+          onDone={(panelWidth) => updateSettings({ panelWidth })}
+        />
+      )}
+      <aside
+        style={{ width: narrow ? Math.min(widths.panel, 340) : widths.panel }}
+        className={cn(
+          "flex min-h-0 shrink-0 flex-col border-l bg-sidebar",
+          (!showPanel || settingsOpen) && "hidden",
+          narrow && "absolute top-12 right-0 bottom-0 z-30 shadow-xl",
+        )}
+      >
         <Tabs value={tab} onValueChange={(v) => setTab(String(v))} className="flex min-h-0 flex-1 flex-col gap-0">
           <TabsList variant="line" className="w-full shrink-0 justify-start border-b px-3 pt-2 pb-0">
             <TabsTrigger value="toc">Contents</TabsTrigger>
@@ -511,7 +609,7 @@ export default function App() {
               {doc ? (
                 <CommentsPanel
                   doc={doc} comments={comments} missing={missing} active={active} setActive={setActive}
-                  compose={compose} setCompose={setCompose} reload={() => loadComments()} jump={jumpToThread}
+                  compose={compose} setCompose={setCompose} reload={() => loadComments()} jump={jumpToThread} onAddNote={startNote}
                 />
               ) : (
                 <p className="p-4 text-sm text-muted-foreground">Open a doc to see its comments.</p>

@@ -1,9 +1,12 @@
 import { useState } from "react"
 import { ask } from "@tauri-apps/plugin-dialog"
+import { Check, MessageSquareText, MoreHorizontal, Pencil, RotateCcw, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Textarea } from "@/components/ui/textarea"
 import { api, type Comment } from "@/lib/api"
+import { mod, modKey } from "@/lib/platform"
 import { cn } from "@/lib/utils"
 
 export type Compose =
@@ -21,10 +24,23 @@ type Props = {
   setCompose: (c: Compose | null) => void
   reload: () => Promise<void>
   jump: (id: number) => void
+  onAddNote: () => void
 }
 
-const fmtDate = (s: string) =>
-  new Date(s.replace(" ", "T") + "Z").toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+const parseDate = (s: string) => new Date(s.replace(" ", "T") + "Z")
+const fmtDate = (s: string) => parseDate(s).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+
+/** Short, single-line age: "just now", "5m ago", "3h ago", "2d ago", then "Oct 27" (with the year if not this one). */
+function fmtAge(s: string) {
+  const d = parseDate(s)
+  const mins = Math.floor((Date.now() - d.getTime()) / 60_000)
+  if (mins < 1) return "just now"
+  if (mins < 60) return `${mins}m ago`
+  if (mins < 24 * 60) return `${Math.floor(mins / 60)}h ago`
+  if (mins < 7 * 24 * 60) return `${Math.floor(mins / 1440)}d ago`
+  const sameYear = d.getFullYear() === new Date().getFullYear()
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: sameYear ? undefined : "numeric" })
+}
 
 function Composer({ initial = "", label, submit, cancel }: { initial?: string; label: string; submit: (body: string) => Promise<void>; cancel: () => void }) {
   const [text, setText] = useState(initial)
@@ -47,12 +63,12 @@ function Composer({ initial = "", label, submit, cancel }: { initial?: string; l
         className="min-h-20 text-sm"
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && e.metaKey) (e.preventDefault(), send())
+          if (e.key === "Enter" && modKey(e)) (e.preventDefault(), send())
           else if (e.key === "Escape") (e.preventDefault(), cancel())
         }}
       />
       <div className="flex items-center gap-2">
-        <span className="flex-1 text-xs text-muted-foreground">⌘↩ save · Esc cancel</span>
+        <span className="flex-1 text-xs text-muted-foreground">{mod}↩ save · Esc cancel</span>
         <Button size="sm" variant="ghost" onClick={cancel}>Cancel</Button>
         <Button size="sm" onClick={send} disabled={!text.trim()}>{label}</Button>
       </div>
@@ -94,18 +110,33 @@ export function CommentsPanel(p: Props) {
       const msg = n ? `Delete this thread and its ${n} ${n > 1 ? "replies" : "reply"}?` : "Delete this comment?"
       if (await ask(msg, { title: "Delete comment", kind: "warning", okLabel: "Delete", cancelLabel: "Cancel" })) run(api.deleteComment(c.id))
     }
-    const act = (label: string, f: () => void, danger = false) => (
-      <button className={cn("hover:underline", danger ? "text-destructive" : "hover:text-foreground")} onClick={(e) => (e.stopPropagation(), f())}>{label}</button>
-    )
+    const stop = (f: () => void) => (e: React.MouseEvent) => (e.stopPropagation(), f())
+    const resolve = () => run(api.resolveComment(c.id, !c.resolved))
     return (
       <div key={c.id} className="select-text">
         <div className="comment-body text-[13px]" dangerouslySetInnerHTML={{ __html: c.body_html }} />
-        <div className="mt-1 flex items-center gap-2.5 text-xs text-muted-foreground select-none">
-          <span className="flex-1">{fmtDate(c.created_at)}</span>
-          {isRoot && !c.resolved && act("Reply", () => p.setCompose({ kind: "reply", id: c.id }))}
-          {act("Edit", () => p.setCompose({ kind: "edit", id: c.id }))}
-          {isRoot && act(c.resolved ? "Reopen" : "Resolve", () => run(api.resolveComment(c.id, !c.resolved)))}
-          {act("Delete", del, true)}
+        <div className="mt-1 flex h-6 items-center gap-1 text-xs text-muted-foreground select-none">
+          <span className="flex-1 truncate" title={fmtDate(c.created_at)}>{fmtAge(c.created_at)}</span>
+          {isRoot && !c.resolved && (
+            <button className="rounded px-1.5 py-0.5 hover:bg-foreground/[0.06] hover:text-foreground" onClick={stop(() => p.setCompose({ kind: "reply", id: c.id }))}>Reply</button>
+          )}
+          {isRoot && (
+            <Button variant="ghost" size="icon-xs" aria-label={c.resolved ? "Reopen" : "Resolve"} title={c.resolved ? "Reopen" : "Resolve"} onClick={stop(resolve)}>
+              {c.resolved ? <RotateCcw /> : <Check />}
+            </Button>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={<Button variant="ghost" size="icon-xs" aria-label="More comment actions" className="opacity-0 group-hover/thread:opacity-100 focus-visible:opacity-100 data-popup-open:opacity-100" onClick={(e) => e.stopPropagation()} />}
+            >
+              <MoreHorizontal />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuItem onClick={() => p.setCompose({ kind: "edit", id: c.id })}><Pencil /> Edit</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={del}><Trash2 /> Delete</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     )
@@ -117,7 +148,7 @@ export function CommentsPanel(p: Props) {
       <div
         key={c.id}
         onClick={() => p.setActive(c.id)}
-        className={cn("rounded-lg border bg-card p-3", c.id === p.active && "ring-2 ring-primary/60", c.resolved && "opacity-70")}
+        className={cn("group/thread rounded-lg border bg-card p-3", c.id === p.active && "ring-2 ring-primary/60", c.resolved && "opacity-70")}
       >
         <Quote text={c.quote} onClick={() => p.jump(c.id)} />
         {p.missing.has(c.id) && <p className="mb-1.5 text-xs text-destructive">Text changed — no longer found in the doc</p>}
@@ -133,6 +164,9 @@ export function CommentsPanel(p: Props) {
   const C = p.compose
   return (
     <div className="grid gap-2.5 p-3">
+      {C?.kind !== "new" && (
+        <Button variant="outline" size="sm" className="justify-self-start" onClick={p.onAddNote}><MessageSquareText /> Add note</Button>
+      )}
       {C?.kind === "new" && (
         <div className="rounded-lg border bg-card p-3 ring-2 ring-primary/60">
           <Quote text={C.quote} />
@@ -140,7 +174,7 @@ export function CommentsPanel(p: Props) {
         </div>
       )}
       {!roots.length && C?.kind !== "new" && (
-        <p className="px-1 text-sm text-muted-foreground">No comments yet. Select text in the preview to comment, or add a note.</p>
+        <p className="px-1 text-sm text-muted-foreground">No comments yet. Select text in the preview to comment on it, or add a general note.</p>
       )}
       {open.map(thread)}
       {resolved.length > 0 && (

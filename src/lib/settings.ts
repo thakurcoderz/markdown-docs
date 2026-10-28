@@ -8,9 +8,17 @@ export type Settings = {
   codeFont: string | null
   /** Look for a new version each time the app opens. */
   checkUpdates: boolean
+  /** Layout: whether the docs sidebar and the right panel are shown, and their widths in px. */
+  sidebarOpen: boolean
+  panelOpen: boolean
+  sidebarWidth: number
+  panelWidth: number
 }
 
-export const DEFAULTS: Settings = { appFont: null, codeFont: null, checkUpdates: true }
+export const DEFAULTS: Settings = {
+  appFont: null, codeFont: null, checkUpdates: true,
+  sidebarOpen: true, panelOpen: true, sidebarWidth: 250, panelWidth: 300,
+}
 
 export async function loadSettings(): Promise<Settings> {
   return { ...DEFAULTS, ...(await invoke<Partial<Settings>>("get_settings")) }
