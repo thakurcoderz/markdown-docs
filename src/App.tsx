@@ -126,6 +126,7 @@ export default function App() {
 
   /** Called when files change outside the app: refresh the tree and reload the open doc if it has no unsaved edits. */
   const syncFromDisk = async () => {
+    if (moving.current) return
     refreshTree()
     const { doc, disk, dirty } = S.current
     if (!doc || !disk) return
@@ -251,6 +252,34 @@ export default function App() {
         await refreshTree()
       },
     })
+
+  // Set while a move runs, so the watcher's sync doesn't mistake the open doc's old path for a deletion.
+  const moving = useRef(false)
+
+  const moveItem = async (id: string, folder: boolean, to: string) => {
+    const cur = S.current.doc
+    // Links in the open doc may be rewritten, so its edits are saved first.
+    if (cur && S.current.dirty && !(await save())) return
+    moving.current = true
+    let next: string
+    try {
+      next = await api.moveItem(id, folder, to)
+    } catch (e) {
+      err(e)
+      // "Moved, but some links couldn't be updated": the files did move.
+      if (!String(e).startsWith("Moved,")) return void (moving.current = false)
+      const name = id.split("/").pop()!
+      next = to ? `${to}/${name}` : name
+    }
+    moving.current = false
+    if (cur && (folder ? cur.startsWith(id + "/") : cur === id)) {
+      const nd = next + cur.slice(id.length)
+      setDoc(nd)
+      S.current.doc = nd
+      await loadComments(nd)
+    }
+    await syncFromDisk()
+  }
 
   const deleteDoc = async (id: string) => {
     const unsaved = id === S.current.doc && S.current.dirty ? " Unsaved changes will be lost." : ""
@@ -407,7 +436,7 @@ export default function App() {
   return (
     <div className="grid h-screen grid-cols-[250px_minmax(0,1fr)_300px] overflow-hidden select-none">
       <Sidebar
-        tree={tree} current={doc} onOpen={openDoc} onNew={newDoc} onRename={renameDoc} onDelete={deleteDoc}
+        tree={tree} current={doc} onOpen={openDoc} onNew={newDoc} onRename={renameDoc} onMove={moveItem} onDelete={deleteDoc}
         onSearch={() => setSearchOpen(true)} onSettings={() => setSettingsOpen(true)} onReveal={() => api.revealRoot().catch(err)}
       />
 

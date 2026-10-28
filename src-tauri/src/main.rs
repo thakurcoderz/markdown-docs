@@ -2,6 +2,7 @@
 
 mod comments;
 mod docs;
+mod relink;
 
 use rusqlite::Connection;
 use serde::Deserialize;
@@ -180,6 +181,27 @@ fn rename_doc(s: State<AppState>, from: String, to: String) -> Result<String, St
         let id = docs::rename(&r.dir, &from, &to)?;
         comments::move_doc(&r.db, &from, Some(&id))?;
         Ok(id)
+    })
+}
+
+/// Moves a doc or folder into folder `to` ("" = top level); comments follow. Returns the new id.
+#[tauri::command]
+fn move_item(s: State<AppState>, from: String, folder: bool, to: String) -> Result<String, String> {
+    with_root(&s, |r| {
+        let res = docs::move_item(&r.dir, &from, folder, &to);
+        // Comments follow even when only the link rewrite failed: the files have moved by then.
+        let id = match &res {
+            Ok(id) => id.clone(),
+            Err(e) if e.starts_with("Moved,") => {
+                let name = from.rsplit('/').next().unwrap();
+                if to.is_empty() { name.to_string() } else { format!("{to}/{name}") }
+            }
+            Err(_) => return res,
+        };
+        if id != from {
+            if folder { comments::move_folder(&r.db, &from, &id)? } else { comments::move_doc(&r.db, &from, Some(&id))? }
+        }
+        res
     })
 }
 
@@ -498,7 +520,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             root_dir, create_doc, rename_doc, delete_doc, reveal_root, tree, read_doc, save_doc, search, render, list_comments, add_comment, edit_comment,
             delete_comment, resolve_comment, get_settings, set_settings, list_fonts, open_url, print, quit, docs_location,
-            set_docs_folder, save_image, import_images, paste_image
+            set_docs_folder, save_image, import_images, paste_image, move_item
         ])
         .run(tauri::generate_context!())
         .expect("error while running app");

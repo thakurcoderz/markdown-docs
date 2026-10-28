@@ -30,6 +30,7 @@ xattr -dr com.apple.quarantine "/Applications/Markdown Docs.app"
 ## Features
 
 - **Docs without folder wrangling** — create, rename and delete docs from the app. Name a doc `team/standup` and it's grouped under "team" automatically.
+- **Drag to organize** — drag docs and folders in the sidebar onto a folder to move them there, or onto the empty space below the list to move them to the top level. Relative links and images are updated in the moved docs and in the docs that link to them, and comments move along. Nothing is ever overwritten.
 - **Plain files** — every doc is a normal `.md` file, so you can still open, edit, back up or version it with any other tool. Changes made outside the app show up live.
 - **Search** — ⌘K opens a palette: type to search doc names and contents, or pick from all docs. Opening a result highlights the first match.
 - **Rich preview** — GitHub-flavored Markdown (tables, task lists, strikethrough, autolinks, footnotes), syntax-highlighted code blocks, KaTeX math (`$inline$`, `$$block$$`), and Mermaid diagrams. Raw HTML is allowed but sanitized.

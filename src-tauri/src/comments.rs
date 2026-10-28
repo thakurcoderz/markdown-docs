@@ -81,6 +81,15 @@ pub fn move_doc(db: &Connection, from: &str, to: Option<&str>) -> Result<(), Str
     .map_err(|e| e.to_string())
 }
 
+/// Re-points comments on every doc under folder `from` to the same doc under `to`.
+pub fn move_folder(db: &Connection, from: &str, to: &str) -> Result<(), String> {
+    let prefix = format!("{from}/");
+    let n = prefix.chars().count() as i64; // SQLite's substr counts characters
+    db.execute("update comments set doc = ?1 || substr(doc, ?2) where substr(doc, 1, ?3) = ?4", params![to, n, n, prefix])
+        .map(drop)
+        .map_err(|e| e.to_string())
+}
+
 pub fn edit(db: &Connection, id: i64, body: &str) -> Result<(), String> {
     db.execute("update comments set body = ? where id = ?", params![clean(body)?, id]).map(drop).map_err(|e| e.to_string())
 }
@@ -112,6 +121,11 @@ mod tests {
         move_doc(&db, "a", Some("b")).unwrap();
         assert!(list(&db, "a").unwrap().is_empty());
         move_doc(&db, "b", Some("a")).unwrap();
+        add(&db, "team/x", None, None, None, "t").unwrap();
+        add(&db, "teammate", None, None, None, "not under team/").unwrap();
+        move_folder(&db, "team", "archive/team").unwrap();
+        assert!(list(&db, "team/x").unwrap().is_empty() && list(&db, "archive/team/x").unwrap().len() == 1);
+        assert_eq!(list(&db, "teammate").unwrap().len(), 1);
         set_resolved(&db, root, true).unwrap();
         assert!(list(&db, "a").unwrap()[0].resolved);
         delete(&db, root).unwrap();
