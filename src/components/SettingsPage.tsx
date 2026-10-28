@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react"
+import { getVersion } from "@tauri-apps/api/app"
 import { open } from "@tauri-apps/plugin-dialog"
-import { ArrowLeft, Check, ChevronsUpDown, FolderOpen, Palette } from "lucide-react"
+import { ArrowLeft, Check, ChevronsUpDown, FolderOpen, Palette, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Switch } from "@/components/ui/switch"
 import type { Location } from "@/lib/api"
 import { fontAvailable, listFonts, type Settings } from "@/lib/settings"
 import { cn } from "@/lib/utils"
@@ -17,12 +19,14 @@ type Props = {
   location: Location | null
   /** Switches the docs folder; `null` = the default one. */
   onDocsFolder: (path: string | null) => void
+  onCheckUpdates: () => void
 }
 
 /** Sections of the settings page. New settings get a new entry here (or a row in an existing one). */
 const SECTIONS = [
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "storage", label: "Docs folder", icon: FolderOpen },
+  { id: "updates", label: "Updates", icon: RefreshCw },
 ] as const
 
 function FontPicker({ value, fonts, placeholder, onPick }: { value: string | null; fonts: string[]; placeholder: string; onPick: (f: string | null) => void }) {
@@ -74,12 +78,14 @@ function Row({ title, description, children }: { title: string; description: str
   )
 }
 
-export function SettingsPage({ settings, onChange, onClose, location, onDocsFolder }: Props) {
+export function SettingsPage({ settings, onChange, onClose, location, onDocsFolder, onCheckUpdates }: Props) {
   const [section, setSection] = useState<(typeof SECTIONS)[number]["id"]>("appearance")
   const [fonts, setFonts] = useState<string[]>([])
+  const [version, setVersion] = useState("")
 
   useEffect(() => {
     listFonts().then(setFonts, (e) => toast.error(String(e)))
+    getVersion().then(setVersion)
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && !document.querySelector("[data-slot=popover-content]") && onClose()
     addEventListener("keydown", onKey)
     return () => removeEventListener("keydown", onKey)
@@ -145,6 +151,17 @@ export function SettingsPage({ settings, onChange, onClose, location, onDocsFold
                   Your chosen folder <span className="font-mono break-all">{location.unavailable}</span> couldn’t be opened, so the default folder is in use. Choose it again once it’s available.
                 </p>
               )}
+            </section>
+          )}
+          {section === "updates" && (
+            <section className="mt-6">
+              <h2 className="text-sm font-medium text-muted-foreground">Updates</h2>
+              <Row title="Check for updates automatically" description="Looks for a new version each time the app opens and offers to install it. Nothing is installed without asking.">
+                <Switch checked={settings.checkUpdates} onCheckedChange={(checkUpdates) => onChange({ ...settings, checkUpdates })} aria-label="Check for updates automatically" />
+              </Row>
+              <Row title={`Markdown Docs ${version}`} description="Updates come from the project’s GitHub releases and are verified with a signature before they’re installed.">
+                <Button variant="outline" onClick={onCheckUpdates}><RefreshCw /> Check now</Button>
+              </Row>
             </section>
           )}
         </div>

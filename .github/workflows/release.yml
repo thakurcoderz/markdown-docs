@@ -7,6 +7,10 @@
 # macOS signing/notarization turns on automatically when these repository secrets exist:
 #   APPLE_CERTIFICATE (base64 .p12), APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY,
 #   APPLE_ID, APPLE_PASSWORD (app-specific password), APPLE_TEAM_ID
+#
+# In-app updates turn on when TAURI_SIGNING_PRIVATE_KEY (and TAURI_SIGNING_PRIVATE_KEY_PASSWORD, if the key
+# has one) exist: update files are signed and the release gets the latest.json the app checks. The matching
+# public key is plugins.updater.pubkey in src-tauri/tauri.conf.json.
 name: Release
 
 on:
@@ -89,12 +93,18 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           # Missing secrets arrive as empty strings; unset them so Tauri builds unsigned instead of failing.
-          for k in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+          for k in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID \
+            TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
             if [ -z "${!k}" ]; then unset "$k"; fi
           done
-          npx tauri build ${{ matrix.args }}
+          # Update files need the signing key, so local builds (and forks) leave them off.
+          updater=()
+          if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then updater=(--config '{"bundle":{"createUpdaterArtifacts":true}}'); fi
+          npx tauri build ${{ matrix.args }} "${updater[@]}"
 
       - name: Package
         run: |
@@ -105,12 +115,19 @@ jobs:
               b=src-tauri/target/universal-apple-darwin/release/bundle
               cp "$b/dmg/Markdown Docs_${v}_universal.dmg" "out/Markdown-Docs_${v}_universal.dmg"
               ditto -c -k --keepParent "$b/macos/Markdown Docs.app" "out/Markdown-Docs_${v}_universal.app.zip"
+              if [ -f "$b/macos/Markdown Docs.app.tar.gz.sig" ]; then
+                cp "$b/macos/Markdown Docs.app.tar.gz" "out/Markdown-Docs_${v}_universal.app.tar.gz"
+                cp "$b/macos/Markdown Docs.app.tar.gz.sig" "out/Markdown-Docs_${v}_universal.app.tar.gz.sig"
+              fi
               lipo -archs "$b/macos/Markdown Docs.app/Contents/MacOS/markdown-docs"
               ;;
             linux)
               b=src-tauri/target/release/bundle
               cp "$b/deb/Markdown Docs_${v}_amd64.deb" "out/Markdown-Docs_${v}_amd64.deb"
               cp "$b/appimage/Markdown Docs_${v}_amd64.AppImage" "out/Markdown-Docs_${v}_amd64.AppImage"
+              for f in deb/"Markdown Docs_${v}_amd64.deb" appimage/"Markdown Docs_${v}_amd64.AppImage"; do
+                if [ -f "$b/$f.sig" ]; then cp "$b/$f.sig" "out/$(basename "$f" | tr ' ' '-').sig"; fi
+              done
               ;;
           esac
           ls -l out
@@ -137,6 +154,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           v=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          node .github/scripts/latest-json.mjs out "$v" "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY"
+          # Signatures are inside latest.json; they don't need to be release assets.
+          mkdir -p sigs && find out -name '*.sig' -exec mv {} sigs/ \;
           (cd out && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
           gh release create "$GITHUB_REF_NAME" out/* \
             --title "Markdown Docs $v" \
