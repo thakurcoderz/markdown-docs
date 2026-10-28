@@ -5,6 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { TreeNode } from "@/lib/api"
+import { fileManager, mod } from "@/lib/platform"
 import { cn } from "@/lib/utils"
 
 type Props = {
@@ -19,6 +20,7 @@ type Props = {
   onSearch: () => void
   onSettings: () => void
   onReveal: () => void
+  style?: React.CSSProperties
 }
 
 export function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
@@ -145,13 +147,13 @@ export function Sidebar(p: Props) {
   )
 
   return (
-    <aside className="flex min-h-0 flex-col border-r bg-sidebar text-sidebar-foreground">
+    <aside style={p.style} className="flex min-h-0 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
       <div className="flex items-center gap-1 px-3 pt-3 pb-2">
         <span className="flex-1 text-sm font-semibold">Docs</span>
-        <IconButton label="Search (⌘K)" onClick={p.onSearch}><Search /></IconButton>
-        <IconButton label="Show in Finder" onClick={p.onReveal}><FolderOpen /></IconButton>
-        <IconButton label="New doc (⌘N)" onClick={p.onNew}><Plus /></IconButton>
-        <IconButton label="Settings (⌘,)" onClick={p.onSettings}><Settings /></IconButton>
+        <IconButton label={`Search (${mod}K)`} onClick={p.onSearch}><Search /></IconButton>
+        <IconButton label={`Show in ${fileManager}`} onClick={p.onReveal}><FolderOpen /></IconButton>
+        <IconButton label={`New doc (${mod}N)`} onClick={p.onNew}><Plus /></IconButton>
+        <IconButton label={`Settings (${mod},)`} onClick={p.onSettings}><Settings /></IconButton>
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <nav

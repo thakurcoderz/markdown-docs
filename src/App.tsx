@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { ask } from "@tauri-apps/plugin-dialog"
 import { toast } from "sonner"
-import { FileDown, MessageSquarePlus, MessageSquareText, Plus, Save } from "lucide-react"
+import { FileDown, MessageSquarePlus, MessageSquareText, PanelLeft, PanelRight, Plus, Save } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -13,18 +13,22 @@ import { CommentsPanel, type Compose } from "@/components/CommentsPanel"
 import { Editor } from "@/components/Editor"
 import { NameDialog, type NameRequest } from "@/components/NameDialog"
 import { SearchDialog } from "@/components/SearchDialog"
+import { ResizeHandle } from "@/components/ResizeHandle"
 import { SettingsPage } from "@/components/SettingsPage"
-import { Sidebar } from "@/components/Sidebar"
+import { IconButton, Sidebar } from "@/components/Sidebar"
 import { api, type Comment, type Doc, type Location, type TreeNode } from "@/lib/api"
 import { docLink } from "@/lib/links"
 import { anchor, enhance, findText, headingEls, readHeadings, selectionAnchor, type Heading } from "@/lib/preview"
 import { applySettings, DEFAULTS, loadSettings, saveSettings, type Settings } from "@/lib/settings"
+import { mod } from "@/lib/platform"
 import { checkForUpdates } from "@/lib/updates"
 import { cn } from "@/lib/utils"
 
 type Mode = "preview" | "split" | "markdown"
 const err = (e: unknown) => toast.error(String(e))
 const AUTOSAVE_MS = 1000
+/** Below this window width the right panel opens over the doc instead of beside it. */
+const NARROW = 1040
 
 export default function App() {
   const [tree, setTree] = useState<TreeNode[]>([])
@@ -47,6 +51,12 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>(DEFAULTS)
   const [location, setLocation] = useState<Location | null>(null)
   const [fab, setFab] = useState<{ x: number; y: number } | null>(null)
+  // Layout: focus mode hides both side panels; in narrow windows the right panel is an overlay, closed by default.
+  const [narrow, setNarrow] = useState(() => innerWidth < NARROW)
+  const [focus, setFocus] = useState(false)
+  const [panelOverlay, setPanelOverlay] = useState(false)
+  // Live widths while dragging a panel edge; saved to settings when the drag ends.
+  const [widths, setWidths] = useState({ sidebar: DEFAULTS.sidebarWidth, panel: DEFAULTS.panelWidth })
   // Set when an autosave fails or an overwrite is declined; ⌘S / the Save button retries and clears it.
   const [autosavePaused, setAutosavePaused] = useState(false)
 
@@ -169,7 +179,7 @@ export default function App() {
       return true
     } catch (e) {
       setAutosavePaused(true)
-      toast.error(`Couldn’t save: ${e}`, { description: auto ? "Autosave is paused. Press ⌘S to retry." : undefined, duration: 10_000 })
+      toast.error(`Couldn’t save: ${e}`, { description: auto ? `Autosave is paused. Press ${mod}S to retry.` : undefined, duration: 10_000 })
       return false
     } finally {
       saving.current = false
@@ -308,15 +318,50 @@ export default function App() {
     } catch (e) { err(e) }
   }
 
-  const updateSettings = (next: Settings) => {
+  /** Merges `patch` into the latest settings (not this render's copy, so back-to-back changes don't undo each other). */
+  const latestSettings = useRef(settings)
+  const updateSettings = (patch: Partial<Settings>) => {
+    const next = { ...latestSettings.current, ...patch }
+    latestSettings.current = next
     setSettings(next)
     applySettings(next)
     saveSettings(next).catch(err)
   }
 
+  // ---------- Layout ----------
+
+  useEffect(() => setWidths({ sidebar: settings.sidebarWidth, panel: settings.panelWidth }), [settings.sidebarWidth, settings.panelWidth])
+  useEffect(() => {
+    const onResize = () => setNarrow(innerWidth < NARROW)
+    addEventListener("resize", onResize)
+    return () => removeEventListener("resize", onResize)
+  }, [])
+  useEffect(() => {
+    if (!focus) return
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !document.querySelector("[role=dialog]") && setFocus(false)
+    addEventListener("keydown", onKey)
+    return () => removeEventListener("keydown", onKey)
+  }, [focus])
+
+  const showSidebar = settings.sidebarOpen && !focus
+  const showPanel = !!doc && !focus && (narrow ? panelOverlay : settings.panelOpen)
+  const toggleSidebar = () => (setFocus(false), updateSettings({ sidebarOpen: !showSidebar }))
+  const togglePanel = () => {
+    setFocus(false)
+    if (narrow) setPanelOverlay(!showPanel)
+    else updateSettings({ panelOpen: !showPanel })
+  }
+  /** Shows the right panel on `t` (e.g. when starting a comment), opening it if hidden. */
+  const openTab = (t: string) => {
+    setTab(t)
+    setFocus(false)
+    if (narrow) setPanelOverlay(true)
+    else if (!settings.panelOpen) updateSettings({ panelOpen: true })
+  }
+
   const checkUpdates = (quiet: boolean) => checkForUpdates({ quiet, beforeRestart: confirmDiscard })
 
-  const startNote = () => { setCompose({ kind: "new", quote: null, start: null }); setTab("comments") }
+  const startNote = () => { setCompose({ kind: "new", quote: null, start: null }); openTab("comments") }
 
   // ---------- Selection → floating Comment button ----------
 
@@ -340,7 +385,7 @@ export default function App() {
     if (!r) return
     const { quote, start } = selectionAnchor(previewRef.current!, r)
     setCompose({ kind: "new", quote, start })
-    setTab("comments")
+    openTab("comments")
     getSelection()?.removeAllRanges()
     setFab(null)
   }
@@ -359,8 +404,8 @@ export default function App() {
 
   // ---------- Global wiring ----------
 
-  const A = useRef({ save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading, openLink, checkUpdates })
-  A.current = { save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading, openLink, checkUpdates }
+  const A = useRef({ save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading, openLink, checkUpdates, toggleSidebar, togglePanel, setFocus })
+  A.current = { save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading, openLink, checkUpdates, toggleSidebar, togglePanel, setFocus }
 
   useEffect(() => {
     api.rootDir().then((d) => (rootDir.current = d), err)
@@ -369,6 +414,7 @@ export default function App() {
       if (loc.unavailable) toast.warning("Your docs folder couldn’t be opened", { description: `Using the default folder instead of ${loc.unavailable}. You can choose it again in Settings.`, duration: 10000 })
     }, err)
     loadSettings().then((s) => {
+      latestSettings.current = s
       setSettings(s)
       applySettings(s)
       // Dev builds would only ever offer to replace themselves with the latest release.
@@ -409,6 +455,9 @@ export default function App() {
         else if (payload === "reveal") api.revealRoot().catch(err)
         else if (payload === "export-pdf") a.exportPdf()
         else if (payload === "toggle-mode") a.switchMode(S.current.mode === "preview" ? "markdown" : "preview")
+        else if (payload === "toggle-sidebar") a.toggleSidebar()
+        else if (payload === "toggle-panel") a.togglePanel()
+        else if (payload === "focus-mode") a.setFocus((f) => !f)
       }),
       getCurrentWindow().onCloseRequested(async (e) => {
         if (!(await A.current.confirmDiscard())) e.preventDefault()
@@ -434,16 +483,25 @@ export default function App() {
   const openCount = comments.filter((c) => c.parent_id == null && !c.resolved).length
 
   return (
-    <div className="grid h-screen grid-cols-[250px_minmax(0,1fr)_300px] overflow-hidden select-none">
-      <Sidebar
+    <div className="relative flex h-screen overflow-hidden select-none">
+      {showSidebar && <Sidebar
+        style={{ width: widths.sidebar }}
         tree={tree} current={doc} onOpen={openDoc} onNew={newDoc} onRename={renameDoc} onMove={moveItem} onDelete={deleteDoc}
         onSearch={() => setSearchOpen(true)} onSettings={() => setSettingsOpen(true)} onReveal={() => api.revealRoot().catch(err)}
-      />
+      />}
+      {showSidebar && (
+        <ResizeHandle
+          side="left" width={widths.sidebar} min={180} max={420} defaultWidth={DEFAULTS.sidebarWidth}
+          onResize={(sidebar) => setWidths((w) => ({ ...w, sidebar }))}
+          onDone={(sidebarWidth) => updateSettings({ sidebarWidth })}
+        />
+      )}
 
       {settingsOpen && <SettingsPage settings={settings} onChange={updateSettings} onClose={closeSettings} location={location} onDocsFolder={changeDocsFolder} onCheckUpdates={() => checkUpdates(false)} />}
 
-      <main className={cn("flex min-h-0 min-w-0 flex-col", settingsOpen && "hidden")}>
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+      <main className={cn("flex min-h-0 min-w-0 flex-1 flex-col", settingsOpen && "hidden")}>
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
+          <IconButton label={`${showSidebar ? "Hide" : "Show"} sidebar (${mod}\\)`} onClick={toggleSidebar}><PanelLeft /></IconButton>
           <h1 className="min-w-0 flex-1 truncate text-sm font-semibold">{doc ?? ""}</h1>
           {doc && (
             <>
@@ -459,6 +517,7 @@ export default function App() {
               <Button size="sm" variant="ghost" onClick={exportPdf}><FileDown /> Export PDF</Button>
             </>
           )}
+          {doc && <IconButton label={`${showPanel ? "Hide" : "Show"} panel (${mod}⇧\\)`} onClick={togglePanel}><PanelRight /></IconButton>}
         </header>
         <div className="flex min-h-0 flex-1">
           {doc && mode !== "preview" && (
@@ -482,7 +541,21 @@ export default function App() {
         </div>
       </main>
 
-      <aside className={cn("flex min-h-0 flex-col border-l bg-sidebar", settingsOpen && "hidden")}>
+      {showPanel && !settingsOpen && !narrow && (
+        <ResizeHandle
+          side="right" width={widths.panel} min={240} max={520} defaultWidth={DEFAULTS.panelWidth}
+          onResize={(panel) => setWidths((w) => ({ ...w, panel }))}
+          onDone={(panelWidth) => updateSettings({ panelWidth })}
+        />
+      )}
+      <aside
+        style={{ width: narrow ? Math.min(widths.panel, 340) : widths.panel }}
+        className={cn(
+          "flex min-h-0 shrink-0 flex-col border-l bg-sidebar",
+          (!showPanel || settingsOpen) && "hidden",
+          narrow && "absolute top-12 right-0 bottom-0 z-30 shadow-xl",
+        )}
+      >
         <Tabs value={tab} onValueChange={(v) => setTab(String(v))} className="flex min-h-0 flex-1 flex-col gap-0">
           <TabsList variant="line" className="w-full shrink-0 justify-start border-b px-3 pt-2 pb-0">
             <TabsTrigger value="toc">Contents</TabsTrigger>

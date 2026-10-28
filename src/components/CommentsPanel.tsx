@@ -4,6 +4,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { api, type Comment } from "@/lib/api"
+import { mod, modKey } from "@/lib/platform"
 import { cn } from "@/lib/utils"
 
 export type Compose =
@@ -47,12 +48,12 @@ function Composer({ initial = "", label, submit, cancel }: { initial?: string; l
         className="min-h-20 text-sm"
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && e.metaKey) (e.preventDefault(), send())
+          if (e.key === "Enter" && modKey(e)) (e.preventDefault(), send())
           else if (e.key === "Escape") (e.preventDefault(), cancel())
         }}
       />
       <div className="flex items-center gap-2">
-        <span className="flex-1 text-xs text-muted-foreground">⌘↩ save · Esc cancel</span>
+        <span className="flex-1 text-xs text-muted-foreground">{mod}↩ save · Esc cancel</span>
         <Button size="sm" variant="ghost" onClick={cancel}>Cancel</Button>
         <Button size="sm" onClick={send} disabled={!text.trim()}>{label}</Button>
       </div>
