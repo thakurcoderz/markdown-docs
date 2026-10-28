@@ -15,7 +15,7 @@ import { NameDialog, type NameRequest } from "@/components/NameDialog"
 import { SearchDialog } from "@/components/SearchDialog"
 import { SettingsPage } from "@/components/SettingsPage"
 import { Sidebar } from "@/components/Sidebar"
-import { api, type Comment, type Doc, type TreeNode } from "@/lib/api"
+import { api, type Comment, type Doc, type Location, type TreeNode } from "@/lib/api"
 import { docLink } from "@/lib/links"
 import { anchor, enhance, findText, headingEls, readHeadings, selectionAnchor, type Heading } from "@/lib/preview"
 import { applySettings, DEFAULTS, loadSettings, saveSettings, type Settings } from "@/lib/settings"
@@ -44,6 +44,7 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settings, setSettings] = useState<Settings>(DEFAULTS)
+  const [location, setLocation] = useState<Location | null>(null)
   const [fab, setFab] = useState<{ x: number; y: number } | null>(null)
   // Set when an autosave fails or an overwrite is declined; ⌘S / the Save button retries and clears it.
   const [autosavePaused, setAutosavePaused] = useState(false)
@@ -260,6 +261,23 @@ export default function App() {
     refreshTree()
   }
 
+  /** Switches the docs folder, offering to copy the current docs into it. The old folder is left untouched. */
+  const changeDocsFolder = async (path: string | null) => {
+    if (!(await confirmDiscard())) return
+    const copy = tree.length > 0 && await ask(
+      "Copy your current docs and comments into the new folder? They also stay where they are now. Choose “Don’t copy” to just open the new folder.",
+      { title: "Change docs folder", okLabel: "Copy docs", cancelLabel: "Don’t copy" },
+    )
+    try {
+      const loc = await api.setDocsFolder(path, copy)
+      closeDoc()
+      setLocation(loc)
+      rootDir.current = loc.dir
+      refreshTree()
+      toast.success(copy ? "Docs copied to the new folder" : "Docs folder changed", { description: loc.dir })
+    } catch (e) { err(e) }
+  }
+
   const updateSettings = (next: Settings) => {
     setSettings(next)
     applySettings(next)
@@ -314,6 +332,10 @@ export default function App() {
 
   useEffect(() => {
     api.rootDir().then((d) => (rootDir.current = d), err)
+    api.docsLocation().then((loc) => {
+      setLocation(loc)
+      if (loc.unavailable) toast.warning("Your docs folder couldn’t be opened", { description: `Using the default folder instead of ${loc.unavailable}. You can choose it again in Settings.`, duration: 10000 })
+    }, err)
     loadSettings().then((s) => (setSettings(s), applySettings(s)), err)
     A.current.syncFromDisk()
     const onFocus = () => A.current.syncFromDisk()
@@ -380,7 +402,7 @@ export default function App() {
         onSearch={() => setSearchOpen(true)} onSettings={() => setSettingsOpen(true)} onReveal={() => api.revealRoot().catch(err)}
       />
 
-      {settingsOpen && <SettingsPage settings={settings} onChange={updateSettings} onClose={closeSettings} />}
+      {settingsOpen && <SettingsPage settings={settings} onChange={updateSettings} onClose={closeSettings} location={location} onDocsFolder={changeDocsFolder} />}
 
       <main className={cn("flex min-h-0 min-w-0 flex-col", settingsOpen && "hidden")}>
         <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">

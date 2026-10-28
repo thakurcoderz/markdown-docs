@@ -12,6 +12,8 @@ use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 struct Root {
     dir: PathBuf,
     db: Connection,
+    /// The chosen docs folder when it couldn't be opened at launch and the default was used instead.
+    unavailable: Option<PathBuf>,
 }
 
 // ponytail: one global lock around root + db; fine for a single-window local app
@@ -21,19 +23,149 @@ fn with_root<T>(s: &State<AppState>, f: impl FnOnce(&Root) -> Result<T, String>)
     f(&s.lock().unwrap())
 }
 
-/// Docs live in the app's own data folder (~/Library/Application Support/<id>/Docs), created on first launch.
+/// By default docs live in the app's own data folder (~/Library/Application Support/<id>/Docs), created on first launch.
 /// ponytail: not ~/Documents, which macOS guards behind a permission prompt for unsigned apps.
-fn open_root(app: &AppHandle) -> Result<Root, String> {
-    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("Docs");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+fn default_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("Docs"))
+}
+
+/// The docs folder the user picked in Settings, if any. Kept apart from settings.json, which the frontend rewrites whole.
+fn location_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("location.json"))
+}
+
+fn chosen_dir(app: &AppHandle) -> Option<PathBuf> {
+    let s = std::fs::read_to_string(location_path(app).ok()?).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&s).ok()?;
+    v["docsFolder"].as_str().map(PathBuf::from)
+}
+
+fn open_dir(app: &AppHandle, dir: &std::path::Path) -> Result<Root, String> {
     let dir = std::fs::canonicalize(dir).map_err(|e| e.to_string())?;
     let db = comments::open(&dir).map_err(|e| e.to_string())?;
-    Ok(Root { dir, db })
+    // Images are served through the asset protocol, which only reads from allowed folders.
+    app.asset_protocol_scope().allow_directory(&dir, true).map_err(|e| e.to_string())?;
+    Ok(Root { dir, db, unavailable: None })
+}
+
+/// Opens the chosen docs folder, falling back to the default one when it's missing (e.g. an unmounted drive).
+fn open_root(app: &AppHandle) -> Result<Root, String> {
+    if let Some(dir) = chosen_dir(app) {
+        match open_dir(app, &dir) {
+            Ok(root) => return Ok(root),
+            Err(_) => {
+                let mut root = open_default(app)?;
+                root.unavailable = Some(dir);
+                return Ok(root);
+            }
+        }
+    }
+    open_default(app)
+}
+
+fn open_default(app: &AppHandle) -> Result<Root, String> {
+    let dir = default_dir(app)?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    open_dir(app, &dir)
 }
 
 #[tauri::command]
 fn root_dir(s: State<AppState>) -> String {
     s.lock().unwrap().dir.to_string_lossy().into_owned()
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Location {
+    dir: String,
+    is_default: bool,
+    /// Set when the chosen folder couldn't be opened at launch.
+    unavailable: Option<String>,
+}
+
+fn location(app: &AppHandle, root: &Root) -> Location {
+    let default = default_dir(app).ok().and_then(|d| std::fs::canonicalize(d).ok());
+    Location {
+        dir: root.dir.to_string_lossy().into_owned(),
+        is_default: default.as_deref() == Some(root.dir.as_path()),
+        unavailable: root.unavailable.as_ref().map(|p| p.to_string_lossy().into_owned()),
+    }
+}
+
+#[tauri::command]
+fn docs_location(app: AppHandle, s: State<AppState>) -> Location {
+    location(&app, &s.lock().unwrap())
+}
+
+/// Every file under `from` as a path relative to it; temp files from in-progress saves are skipped.
+fn files_under(from: &std::path::Path) -> std::io::Result<Vec<PathBuf>> {
+    let mut out = vec![];
+    let mut stack = vec![PathBuf::new()];
+    while let Some(rel) = stack.pop() {
+        for e in std::fs::read_dir(from.join(&rel))? {
+            let e = e?;
+            let (ft, rel) = (e.file_type()?, rel.join(e.file_name()));
+            if ft.is_dir() {
+                stack.push(rel);
+            } else if ft.is_file() && !e.file_name().to_string_lossy().ends_with(".tmp") {
+                out.push(rel);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Copies docs and comments into `to` without overwriting anything; nothing is copied if any file already exists there.
+fn copy_docs(from: &std::path::Path, to: &std::path::Path) -> Result<(), String> {
+    let files = files_under(from).map_err(|e| e.to_string())?;
+    if let Some(clash) = files.iter().find(|f| to.join(f).exists()) {
+        return Err(format!("“{}” already exists in the new folder, so nothing was copied", clash.display()));
+    }
+    for f in files {
+        let dst = to.join(&f);
+        std::fs::create_dir_all(dst.parent().unwrap()).and_then(|_| std::fs::copy(from.join(&f), &dst)).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Switches to another docs folder (`None` = the default one), optionally copying the current docs into it first.
+/// The old folder is left as it was.
+#[tauri::command]
+fn set_docs_folder(app: AppHandle, s: State<AppState>, path: Option<String>, copy: bool) -> Result<Location, String> {
+    let target = match &path {
+        Some(p) => PathBuf::from(p),
+        None => {
+            let d = default_dir(&app)?;
+            std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
+            d
+        }
+    };
+    let target = std::fs::canonicalize(&target).map_err(|_| format!("Folder not found: {}", target.display()))?;
+    if !target.is_dir() {
+        return Err(format!("Not a folder: {}", target.display()));
+    }
+    let mut state = s.lock().unwrap();
+    if target == state.dir {
+        return Ok(location(&app, &state));
+    }
+    if copy {
+        if target.starts_with(&state.dir) || state.dir.starts_with(&target) {
+            return Err("Pick a folder that isn't inside the current docs folder (or the other way round)".into());
+        }
+        copy_docs(&state.dir, &target)?;
+    }
+    let root = open_dir(&app, &target)?;
+    *app.state::<Mutex<notify::RecommendedWatcher>>().lock().unwrap() = watch(&app, &root.dir).map_err(|e| e.to_string())?;
+    let p = location_path(&app)?;
+    match path {
+        Some(_) => std::fs::write(&p, serde_json::json!({ "docsFolder": root.dir }).to_string()).map_err(|e| e.to_string())?,
+        None => drop(std::fs::remove_file(&p)),
+    }
+    *state = root;
+    let loc = location(&app, &state);
+    drop(state);
+    let _ = app.emit("fs-changed", ());
+    Ok(loc)
 }
 
 #[tauri::command]
@@ -278,7 +410,8 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             root_dir, create_doc, rename_doc, delete_doc, reveal_root, tree, read_doc, save_doc, search, render, list_comments, add_comment, edit_comment,
-            delete_comment, resolve_comment, get_settings, set_settings, list_fonts, open_url, print, quit
+            delete_comment, resolve_comment, get_settings, set_settings, list_fonts, open_url, print, quit, docs_location,
+            set_docs_folder
         ])
         .run(tauri::generate_context!())
         .expect("error while running app");
@@ -286,6 +419,29 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn copies_docs_without_overwriting() {
+        let base = std::env::temp_dir().join(format!("mdcopy-{}", std::process::id()));
+        let (from, to) = (base.join("from"), base.join("to"));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(from.join("team")).unwrap();
+        std::fs::create_dir_all(from.join(".docs")).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        std::fs::write(from.join("a.md"), "a").unwrap();
+        std::fs::write(from.join("team/b.md"), "b").unwrap();
+        std::fs::write(from.join(".docs/comments.db"), "db").unwrap();
+        std::fs::write(from.join(".a.md.1.tmp"), "half-saved").unwrap();
+        super::copy_docs(&from, &to).unwrap();
+        assert_eq!(std::fs::read_to_string(to.join("team/b.md")).unwrap(), "b");
+        assert!(to.join(".docs/comments.db").exists() && !to.join(".a.md.1.tmp").exists());
+        std::fs::write(to.join("a.md"), "changed").unwrap();
+        std::fs::remove_file(to.join("team/b.md")).unwrap();
+        assert!(super::copy_docs(&from, &to).is_err(), "clash");
+        assert_eq!(std::fs::read_to_string(to.join("a.md")).unwrap(), "changed");
+        assert!(!to.join("team/b.md").exists(), "nothing copied on a clash");
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
     #[test]
     #[cfg(target_os = "macos")]
     fn lists_installed_fonts() {

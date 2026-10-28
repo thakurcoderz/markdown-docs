@@ -14,9 +14,15 @@ export type Comment = {
   created_at: string
 }
 
+/** Where docs are stored; `unavailable` is the chosen folder when it couldn't be opened at launch. */
+export type Location = { dir: string; isDefault: boolean; unavailable: string | null }
+
 export const api = {
   rootDir: () => invoke<string>("root_dir"),
   revealRoot: () => invoke<void>("reveal_root"),
+  docsLocation: () => invoke<Location>("docs_location"),
+  /** `path = null` switches back to the default folder; `copy` copies the current docs into the new folder first. */
+  setDocsFolder: (path: string | null, copy: boolean) => invoke<Location>("set_docs_folder", { path, copy }),
   tree: () => invoke<TreeNode[]>("tree"),
   readDoc: (id: string) => invoke<Doc>("read_doc", { id }),
   saveDoc: (id: string, content: string, mtime: string, force: boolean) =>
