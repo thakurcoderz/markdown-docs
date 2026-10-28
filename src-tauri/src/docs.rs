@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::fs;
+use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -205,6 +206,45 @@ pub fn save(root: &Path, id: &str, content: &str, expected: &str, force: bool) -
     mtime(&p)
 }
 
+const IMAGE_EXTS: [&str; 7] = ["png", "jpg", "jpeg", "gif", "webp", "svg", "avif"];
+
+/// Saves an image into an `img/` folder beside the doc and returns its path relative to the doc, for `![](…)`.
+/// The name is reduced to letters, digits, '-' and '_', and never overwrites: "shot.png" → "shot-2.png".
+pub fn save_image(root: &Path, doc: &str, name: &str, bytes: &[u8]) -> Result<String, String> {
+    let name = Path::new(name);
+    let ext = name
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .filter(|e| IMAGE_EXTS.contains(&e.as_str()))
+        .ok_or("Only PNG, JPEG, GIF, WebP, SVG and AVIF images can be added")?;
+    let stem = name.file_stem().unwrap_or_default().to_string_lossy();
+    let stem = stem.split(|c: char| !(c.is_alphanumeric() || c == '-' || c == '_')).filter(|s| !s.is_empty()).collect::<Vec<_>>().join("-");
+    let stem = if stem.is_empty() { "image".into() } else { stem };
+    let dir = doc_path(root, doc)?.parent().unwrap().join("img");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    if !fs::canonicalize(&dir).map_err(|e| e.to_string())?.starts_with(root) {
+        return Err("The img folder is outside the docs folder".into());
+    }
+    for n in 1.. {
+        let file = if n == 1 { format!("{stem}.{ext}") } else { format!("{stem}-{n}.{ext}") };
+        let p = dir.join(&file);
+        match fs::OpenOptions::new().write(true).create_new(true).open(&p) {
+            Ok(mut f) => {
+                return match f.write_all(bytes) {
+                    Ok(()) => Ok(format!("img/{file}")),
+                    Err(e) => {
+                        let _ = fs::remove_file(&p);
+                        Err(e.to_string())
+                    }
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    unreachable!()
+}
+
 /// GFM + math to sanitized HTML. Keeps ids, `language-*`/`math-*` classes and comrak's math spans.
 pub fn render(md: &str) -> String {
     let mut o = comrak::Options::default();
@@ -269,6 +309,22 @@ mod tests {
         assert_eq!(hits[0].lines, ["beta GAMMA", "gamma again"]);
         assert_eq!(search(&root, "standup")[0].id, "daily/standup", "name match");
         assert!(search(&root, "  ").is_empty());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn saves_images_beside_the_doc() {
+        let dir = std::env::temp_dir().join(format!("mdimg-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("team")).unwrap();
+        let root = fs::canonicalize(&dir).unwrap();
+        fs::write(root.join("team/standup.md"), "").unwrap();
+        assert_eq!(save_image(&root, "team/standup", "My Shot (1).PNG", b"a").unwrap(), "img/My-Shot-1.png");
+        assert_eq!(save_image(&root, "team/standup", "My Shot (1).png", b"b").unwrap(), "img/My-Shot-1-2.png", "no overwrite");
+        assert_eq!(fs::read(root.join("team/img/My-Shot-1.png")).unwrap(), b"a");
+        assert_eq!(save_image(&root, "team/standup", "../../ .png", b"c").unwrap(), "img/image.png");
+        assert!(save_image(&root, "team/standup", "notes.txt", b"x").is_err());
+        assert!(save_image(&root, "../x", "a.png", b"x").is_err());
         fs::remove_dir_all(dir).unwrap();
     }
 

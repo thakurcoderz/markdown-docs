@@ -2091,9 +2091,11 @@ version = "0.4.0"
 dependencies = [
  "ammonia",
  "comrak",
+ "gtk",
  "notify",
  "objc2-core-foundation",
  "objc2-core-text",
+ "percent-encoding",
  "rusqlite",
  "serde",
  "serde_json",
@@ -2101,6 +2103,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "trash",
+ "webkit2gtk",
 ]
 
 [[package]]
