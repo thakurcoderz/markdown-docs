@@ -175,34 +175,50 @@ fn create_doc(s: State<AppState>, id: String) -> Result<String, String> {
     with_root(&s, |r| docs::create(&r.dir, &id))
 }
 
+/// Moves comments after a relocation to `id`. They follow even when only the link rewrite failed
+/// ("Moved, but…"): the files have moved by then. `res` is passed through.
+fn follow_comments(r: &Root, from: &str, folder: bool, id: &str, res: Result<String, String>) -> Result<String, String> {
+    let id = match &res {
+        Ok(new) => new.as_str(),
+        Err(e) if e.starts_with("Moved,") => id,
+        Err(_) => return res,
+    };
+    if id == from {
+        return res;
+    }
+    if folder { comments::move_folder(&r.db, from, id)? } else { comments::move_doc(&r.db, from, Some(id))? }
+    res
+}
+
+/// Renames (or moves) a doc to the id `to`, fixing links; its comments follow.
 #[tauri::command]
 fn rename_doc(s: State<AppState>, from: String, to: String) -> Result<String, String> {
+    let id = to.trim().trim_matches('/').trim_end_matches(".md").to_string();
+    with_root(&s, |r| follow_comments(r, &from, false, &id, docs::relocate(&r.dir, &from, false, &to)))
+}
+
+/// Renames (or moves) a folder to the id `to`, fixing links; comments on its docs follow.
+#[tauri::command]
+fn rename_folder(s: State<AppState>, from: String, to: String) -> Result<String, String> {
+    let id = to.trim().trim_matches('/').to_string();
+    with_root(&s, |r| follow_comments(r, &from, true, &id, docs::relocate(&r.dir, &from, true, &to)))
+}
+
+/// Moves a folder to the Trash; comments on its docs are deleted.
+#[tauri::command]
+fn delete_folder(s: State<AppState>, id: String) -> Result<(), String> {
     with_root(&s, |r| {
-        let id = docs::rename(&r.dir, &from, &to)?;
-        comments::move_doc(&r.db, &from, Some(&id))?;
-        Ok(id)
+        docs::delete_folder(&r.dir, &id)?;
+        comments::delete_folder(&r.db, &id)
     })
 }
 
 /// Moves a doc or folder into folder `to` ("" = top level); comments follow. Returns the new id.
 #[tauri::command]
 fn move_item(s: State<AppState>, from: String, folder: bool, to: String) -> Result<String, String> {
-    with_root(&s, |r| {
-        let res = docs::move_item(&r.dir, &from, folder, &to);
-        // Comments follow even when only the link rewrite failed: the files have moved by then.
-        let id = match &res {
-            Ok(id) => id.clone(),
-            Err(e) if e.starts_with("Moved,") => {
-                let name = from.rsplit('/').next().unwrap();
-                if to.is_empty() { name.to_string() } else { format!("{to}/{name}") }
-            }
-            Err(_) => return res,
-        };
-        if id != from {
-            if folder { comments::move_folder(&r.db, &from, &id)? } else { comments::move_doc(&r.db, &from, Some(&id))? }
-        }
-        res
-    })
+    let name = from.rsplit('/').next().unwrap_or_default();
+    let id = if to.is_empty() { name.to_string() } else { format!("{to}/{name}") };
+    with_root(&s, |r| follow_comments(r, &from, folder, &id, docs::move_item(&r.dir, &from, folder, &to)))
 }
 
 #[tauri::command]
@@ -528,7 +544,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             root_dir, create_doc, rename_doc, delete_doc, reveal_root, tree, read_doc, save_doc, search, render, list_comments, add_comment, edit_comment,
             delete_comment, resolve_comment, get_settings, set_settings, list_fonts, open_url, print, quit, docs_location,
-            set_docs_folder, save_image, import_images, paste_image, move_item
+            set_docs_folder, save_image, import_images, paste_image, move_item, rename_folder, delete_folder
         ])
         .run(tauri::generate_context!())
         .expect("error while running app");

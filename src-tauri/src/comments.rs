@@ -90,6 +90,13 @@ pub fn move_folder(db: &Connection, from: &str, to: &str) -> Result<(), String> 
         .map_err(|e| e.to_string())
 }
 
+/// Deletes the comments on every doc under folder `id`.
+pub fn delete_folder(db: &Connection, id: &str) -> Result<(), String> {
+    let prefix = format!("{id}/");
+    let n = prefix.chars().count() as i64;
+    db.execute("delete from comments where substr(doc, 1, ?1) = ?2", params![n, prefix]).map(drop).map_err(|e| e.to_string())
+}
+
 pub fn edit(db: &Connection, id: i64, body: &str) -> Result<(), String> {
     db.execute("update comments set body = ? where id = ?", params![clean(body)?, id]).map(drop).map_err(|e| e.to_string())
 }
@@ -126,6 +133,8 @@ mod tests {
         move_folder(&db, "team", "archive/team").unwrap();
         assert!(list(&db, "team/x").unwrap().is_empty() && list(&db, "archive/team/x").unwrap().len() == 1);
         assert_eq!(list(&db, "teammate").unwrap().len(), 1);
+        delete_folder(&db, "archive").unwrap();
+        assert!(list(&db, "archive/team/x").unwrap().is_empty() && list(&db, "teammate").unwrap().len() == 1);
         set_resolved(&db, root, true).unwrap();
         assert!(list(&db, "a").unwrap()[0].resolved);
         delete(&db, root).unwrap();

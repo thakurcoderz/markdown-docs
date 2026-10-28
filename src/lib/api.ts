@@ -31,6 +31,10 @@ export const api = {
   createDoc: (id: string) => invoke<string>("create_doc", { id }),
   renameDoc: (from: string, to: string) => invoke<string>("rename_doc", { from, to }),
   deleteDoc: (id: string) => invoke<void>("delete_doc", { id }),
+  /** Renames (or moves) a folder to the id `to`, fixing relative links. Returns the new id. */
+  renameFolder: (from: string, to: string) => invoke<string>("rename_folder", { from, to }),
+  /** Moves a folder and its docs to the Trash; their comments are deleted. */
+  deleteFolder: (id: string) => invoke<void>("delete_folder", { id }),
   /** Moves a doc or folder into folder `to` ("" = top level), fixing relative links. Returns the new id. */
   moveItem: (from: string, folder: boolean, to: string) => invoke<string>("move_item", { from, folder, to }),
   /** Saves an image beside the doc and returns its doc-relative path, e.g. "img/shot.png". */

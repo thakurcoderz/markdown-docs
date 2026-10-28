@@ -3,7 +3,14 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 
-export type NameRequest = { title: string; action: string; initial: string; submit: (name: string) => Promise<void> }
+export type NameRequest = {
+  title: string
+  action: string
+  initial: string
+  submit: (name: string) => Promise<void>
+  /** "end" puts the cursor after the prefilled text (e.g. "team/") instead of selecting it. */
+  select?: "all" | "end"
+}
 
 /** Asks for a doc name. `team/standup` puts the doc in a "team" folder, created automatically. */
 export function NameDialog({ req, onClose }: { req: NameRequest | null; onClose: () => void }) {
@@ -43,7 +50,7 @@ function Form({ req, onClose }: { req: NameRequest; onClose: () => void }) {
           value={name}
           placeholder="meeting-notes"
           onChange={(e) => (setName(e.target.value), setError(""))}
-          onFocus={(e) => e.target.select()}
+          onFocus={(e) => (req.select === "end" ? e.target.setSelectionRange(name.length, name.length) : e.target.select())}
           aria-invalid={!!error}
         />
         {error && <p className="text-xs text-destructive">{error}</p>}

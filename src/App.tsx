@@ -251,36 +251,28 @@ export default function App() {
       },
     })
 
-  const renameDoc = (id: string) =>
-    setNameReq({
-      title: "Rename doc", action: "Rename", initial: id,
-      submit: async (name) => {
-        if (id === S.current.doc && !(await save())) throw "Save your changes first"
-        const next = await api.renameDoc(id, name)
-        if (S.current.doc === id) { setDoc(next); S.current.doc = next }
-        await refreshTree()
-      },
-    })
-
   // Set while a move runs, so the watcher's sync doesn't mistake the open doc's old path for a deletion.
   const moving = useRef(false)
 
-  const moveItem = async (id: string, folder: boolean, to: string) => {
+  /**
+   * Runs a move or rename of `id` (`expected` = its new id). The open doc follows to its new path and is reloaded,
+   * since links in it may have been rewritten. Throws on failure, except "Moved, but some links couldn't be
+   * updated", where the files did move.
+   */
+  const relocate = async (id: string, folder: boolean, run: () => Promise<string>, expected: string) => {
     const cur = S.current.doc
-    // Links in the open doc may be rewritten, so its edits are saved first.
-    if (cur && S.current.dirty && !(await save())) return
+    if (cur && S.current.dirty && !(await save())) throw "Save your changes first"
     moving.current = true
     let next: string
     try {
-      next = await api.moveItem(id, folder, to)
+      next = await run()
     } catch (e) {
+      if (!String(e).startsWith("Moved,")) throw e
       err(e)
-      // "Moved, but some links couldn't be updated": the files did move.
-      if (!String(e).startsWith("Moved,")) return void (moving.current = false)
-      const name = id.split("/").pop()!
-      next = to ? `${to}/${name}` : name
+      next = expected
+    } finally {
+      moving.current = false
     }
-    moving.current = false
     if (cur && (folder ? cur.startsWith(id + "/") : cur === id)) {
       const nd = next + cur.slice(id.length)
       setDoc(nd)
@@ -288,6 +280,43 @@ export default function App() {
       await loadComments(nd)
     }
     await syncFromDisk()
+  }
+
+  const moveItem = (id: string, folder: boolean, to: string) => {
+    const name = id.split("/").pop()!
+    relocate(id, folder, () => api.moveItem(id, folder, to), to ? `${to}/${name}` : name).catch(err)
+  }
+
+  const renameItem = (id: string, folder: boolean) =>
+    setNameReq({
+      title: folder ? "Rename folder" : "Rename doc", action: "Rename", initial: id,
+      submit: (name) => {
+        const to = name.trim().replace(/^\/+|\/+$/g, "").replace(/\.md$/, "")
+        return relocate(id, folder, () => (folder ? api.renameFolder(id, name) : api.renameDoc(id, name)), to)
+      },
+    })
+
+  const newDocIn = (folder: string) =>
+    setNameReq({
+      title: "New doc", action: "Create", initial: `${folder}/`, select: "end",
+      submit: async (name) => {
+        const id = await api.createDoc(name)
+        await refreshTree()
+        await openDoc(id, S.current.mode === "preview" ? "markdown" : S.current.mode)
+      },
+    })
+
+  const deleteFolder = async (id: string) => {
+    const inside = (d: string) => d.startsWith(id + "/")
+    const count = (nodes: TreeNode[]): number => nodes.reduce((n, c) => n + (c.children ? count(c.children) : inside(c.id) ? 1 : 0), 0)
+    const n = count(tree)
+    const unsaved = S.current.doc && inside(S.current.doc) && S.current.dirty ? " Unsaved changes will be lost." : ""
+    const ok = await ask(`Move the folder “${id}” and its ${n} ${n === 1 ? "doc" : "docs"} to the Trash? Their comments will be deleted.${unsaved}`,
+      { title: "Delete folder", kind: "warning", okLabel: "Move to Trash", cancelLabel: "Cancel" })
+    if (!ok) return
+    try { await api.deleteFolder(id) } catch (e) { return err(e) }
+    if (S.current.doc && inside(S.current.doc)) closeDoc()
+    refreshTree()
   }
 
   const deleteDoc = async (id: string) => {
@@ -485,7 +514,8 @@ export default function App() {
     <div className="relative flex h-screen overflow-hidden select-none">
       {showSidebar && <Sidebar
         style={{ width: widths.sidebar }}
-        tree={tree} current={doc} onOpen={openDoc} onNew={newDoc} onRename={renameDoc} onMove={moveItem} onDelete={deleteDoc}
+        tree={tree} current={doc} onOpen={openDoc} onNew={newDoc} onRename={(id) => renameItem(id, false)} onMove={moveItem} onDelete={deleteDoc}
+        onRenameFolder={(id) => renameItem(id, true)} onDeleteFolder={deleteFolder} onNewIn={newDocIn}
         onSearch={() => setSearchOpen(true)} onSettings={() => setSettingsOpen(true)} onReveal={() => api.revealRoot().catch(err)}
       />}
       {showSidebar && (
@@ -503,7 +533,7 @@ export default function App() {
           doc={doc} mode={mode} dirty={dirty} paused={autosavePaused} compact={narrow}
           sidebarOpen={showSidebar} panelOpen={showPanel}
           onMode={switchMode} onSave={() => save()} onToggleSidebar={toggleSidebar} onTogglePanel={togglePanel}
-          onAddNote={startNote} onExportPdf={exportPdf} onRename={() => doc && renameDoc(doc)}
+          onAddNote={startNote} onExportPdf={exportPdf} onRename={() => doc && renameItem(doc, false)}
           onReveal={() => api.revealRoot().catch(err)} onFocus={() => setFocus(true)} onDelete={() => doc && deleteDoc(doc)}
         />
         <div className="flex min-h-0 flex-1">

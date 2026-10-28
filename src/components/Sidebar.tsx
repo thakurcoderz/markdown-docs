@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
-import { ChevronRight, FileText, FolderOpen, MoreHorizontal, Pencil, Plus, Search, Settings, Trash2 } from "lucide-react"
+import { ChevronRight, FilePlus, FileText, Folder, FolderOpen, MoreHorizontal, Pencil, Search, Settings, SquarePen, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { TreeNode } from "@/lib/api"
@@ -13,10 +13,14 @@ type Props = {
   current: string | null
   onOpen: (id: string) => void
   onNew: () => void
+  /** New doc inside folder `folder`. */
+  onNewIn: (folder: string) => void
   onRename: (id: string) => void
+  onRenameFolder: (id: string) => void
   /** Moves a doc or folder into folder `to` ("" = top level). */
   onMove: (id: string, folder: boolean, to: string) => void
   onDelete: (id: string) => void
+  onDeleteFolder: (id: string) => void
   onSearch: () => void
   onSettings: () => void
   onReveal: () => void
@@ -89,6 +93,58 @@ export function Sidebar(p: Props) {
     return () => clearTimeout(t)
   }, [over, collapsed])
 
+  const row = (n: TreeNode, depth: number) => {
+    const folder = !!n.children
+    const open = folder && !collapsed.has(n.id)
+    const selected = !folder && n.id === p.current
+    const Icon = folder ? (open ? FolderOpen : Folder) : FileText
+    return (
+      <div
+        className={cn(
+          "group flex items-center rounded-md text-sm transition-colors hover:bg-foreground/[0.05]",
+          selected && "bg-foreground/[0.08] font-medium hover:bg-foreground/[0.08]",
+        )}
+      >
+        <button
+          {...dragProps({ id: n.id, folder })}
+          className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left"
+          style={{ paddingLeft: 6 + depth * 14 }}
+          title={n.id}
+          aria-expanded={folder ? open : undefined}
+          aria-current={selected ? "page" : undefined}
+          onClick={() => (folder ? toggle(n.id) : p.onOpen(n.id))}
+        >
+          <ChevronRight className={cn("size-3 shrink-0 text-muted-foreground transition-transform", !folder && "invisible", open && "rotate-90")} />
+          <Icon className={cn("size-3.5 shrink-0", folder ? "text-muted-foreground" : "opacity-60")} />
+          <span className="truncate">{n.name}</span>
+        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={<Button variant="ghost" size="icon-xs" aria-label={`Actions for ${n.name}`} className="mr-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-popup-open:opacity-100 hover:bg-transparent" />}
+          >
+            <MoreHorizontal />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            {folder ? (
+              <>
+                <DropdownMenuItem onClick={() => p.onNewIn(n.id)}><FilePlus /> New doc here…</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => p.onRenameFolder(n.id)}><Pencil /> Rename folder…</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onClick={() => p.onDeleteFolder(n.id)}><Trash2 /> Move folder to Trash</DropdownMenuItem>
+              </>
+            ) : (
+              <>
+                <DropdownMenuItem onClick={() => p.onRename(n.id)}><Pencil /> Rename…</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onClick={() => p.onDelete(n.id)}><Trash2 /> Move to Trash</DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    )
+  }
+
   const list = (nodes: TreeNode[], depth: number) => (
     <ul>
       {nodes.map((n) => (
@@ -97,50 +153,8 @@ export function Sidebar(p: Props) {
           {...dropProps(n.children ? n.id : parentOf(n.id))}
           className={cn("rounded-md", n.children && over === n.id && "bg-sidebar-accent ring-1 ring-sidebar-ring", dragged?.id === n.id && "opacity-50")}
         >
-          {n.children ? (
-            <>
-              <button
-                {...dragProps({ id: n.id, folder: true })}
-                className="flex w-full items-center gap-1 rounded-md px-2 py-1 text-left text-sm font-medium text-muted-foreground hover:bg-sidebar-accent"
-                style={{ paddingLeft: 8 + depth * 12 }}
-                aria-expanded={!collapsed.has(n.id)}
-                onClick={() => toggle(n.id)}
-              >
-                <ChevronRight className={cn("size-3.5 shrink-0 transition-transform", !collapsed.has(n.id) && "rotate-90")} />
-                <span className="truncate">{n.name}</span>
-              </button>
-              {!collapsed.has(n.id) && list(n.children, depth + 1)}
-            </>
-          ) : (
-            <div
-              className={cn(
-                "group flex items-center rounded-md text-sm hover:bg-sidebar-accent",
-                n.id === p.current && "bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary",
-              )}
-            >
-              <button
-                {...dragProps({ id: n.id, folder: false })}
-                className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left"
-                style={{ paddingLeft: 8 + depth * 12 }}
-                title={n.id}
-                onClick={() => p.onOpen(n.id)}
-              >
-                <FileText className="size-3.5 shrink-0 opacity-60" />
-                <span className="truncate">{n.name}</span>
-              </button>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={<Button variant="ghost" size="icon-xs" aria-label={`Actions for ${n.name}`} className="mr-1 opacity-0 group-hover:opacity-100 data-popup-open:opacity-100 hover:bg-transparent" />}
-                >
-                  <MoreHorizontal />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => p.onRename(n.id)}><Pencil /> Rename…</DropdownMenuItem>
-                  <DropdownMenuItem variant="destructive" onClick={() => p.onDelete(n.id)}><Trash2 /> Move to Trash</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          )}
+          {row(n, depth)}
+          {n.children && !collapsed.has(n.id) && list(n.children, depth + 1)}
         </li>
       ))}
     </ul>
@@ -148,12 +162,19 @@ export function Sidebar(p: Props) {
 
   return (
     <aside style={p.style} className="flex min-h-0 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
-      <div className="flex items-center gap-1 px-3 pt-3 pb-2">
+      <div className="flex h-12 shrink-0 items-center gap-1 pr-2 pl-4">
         <span className="flex-1 text-sm font-semibold">Docs</span>
-        <IconButton label={`Search (${mod}K)`} onClick={p.onSearch}><Search /></IconButton>
-        <IconButton label={`Show in ${fileManager}`} onClick={p.onReveal}><FolderOpen /></IconButton>
-        <IconButton label={`New doc (${mod}N)`} onClick={p.onNew}><Plus /></IconButton>
-        <IconButton label={`Settings (${mod},)`} onClick={p.onSettings}><Settings /></IconButton>
+        <IconButton label={`New doc (${mod}N)`} onClick={p.onNew}><SquarePen /></IconButton>
+      </div>
+      <div className="px-2 pb-2">
+        <button
+          onClick={p.onSearch}
+          className="flex h-8 w-full items-center gap-2 rounded-md border bg-background px-2.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <Search className="size-3.5" />
+          <span className="flex-1 text-left">Search</span>
+          <kbd className="font-sans text-[11px]">{mod}K</kbd>
+        </button>
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <nav
@@ -162,16 +183,15 @@ export function Sidebar(p: Props) {
           className={cn("min-h-full rounded-md px-2 pb-12", over === "" && "bg-sidebar-accent/60")}
           aria-label="Documents"
         >
-          {p.tree.length ? (
-            list(p.tree, 0)
-          ) : (
-            <div className="px-2 py-6 text-center text-sm text-muted-foreground">
-              <p className="mb-3">No docs yet.</p>
-              <Button size="sm" onClick={p.onNew}><Plus /> New doc</Button>
-            </div>
-          )}
+          {p.tree.length ? list(p.tree, 0) : <p className="px-2 py-6 text-center text-sm text-muted-foreground">No docs yet</p>}
         </nav>
       </ScrollArea>
+      <div className="flex shrink-0 items-center gap-1 border-t px-2 py-1.5">
+        <Button variant="ghost" size="sm" className="flex-1 justify-start text-muted-foreground" onClick={p.onSettings}>
+          <Settings /> Settings
+        </Button>
+        <IconButton label={`Show docs in ${fileManager}`} onClick={p.onReveal}><FolderOpen /></IconButton>
+      </div>
     </aside>
   )
 }

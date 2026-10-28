@@ -43,9 +43,10 @@ export function DocHeader(p: Props) {
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
       <IconButton label={`${p.sidebarOpen ? "Hide" : "Show"} sidebar (${mod}\\)`} onClick={p.onToggleSidebar}><PanelLeft /></IconButton>
-      <h1 className="flex min-w-0 flex-1 items-baseline gap-1.5 text-sm" title={p.doc ?? undefined}>
-        {folder && <span className="min-w-0 shrink truncate text-muted-foreground">{folder.split("/").join(" / ")} /</span>}
-        <span className="min-w-0 shrink-0 truncate font-semibold">{name}</span>
+      <h1 className="flex min-w-0 flex-1 items-baseline gap-1.5 overflow-hidden text-sm" title={p.doc ?? undefined}>
+        {/* The folder path gives way first, then the name. */}
+        {folder && <span className="min-w-0 shrink-[4] truncate text-muted-foreground">{folder.split("/").join(" / ")} /</span>}
+        <span className="min-w-0 truncate font-semibold">{name}</span>
         {p.doc && (
           <span className="ml-1 shrink-0 text-xs text-muted-foreground" aria-live="polite">
             {p.dirty ? (p.paused ? "" : "Saving…") : <span className="inline-flex items-center gap-1"><Check className="size-3" /> Saved</span>}
