@@ -19,6 +19,7 @@ import { api, type Comment, type Doc, type Location, type TreeNode } from "@/lib
 import { docLink } from "@/lib/links"
 import { anchor, enhance, findText, headingEls, readHeadings, selectionAnchor, type Heading } from "@/lib/preview"
 import { applySettings, DEFAULTS, loadSettings, saveSettings, type Settings } from "@/lib/settings"
+import { checkForUpdates } from "@/lib/updates"
 import { cn } from "@/lib/utils"
 
 type Mode = "preview" | "split" | "markdown"
@@ -284,6 +285,8 @@ export default function App() {
     saveSettings(next).catch(err)
   }
 
+  const checkUpdates = (quiet: boolean) => checkForUpdates({ quiet, beforeRestart: confirmDiscard })
+
   const startNote = () => { setCompose({ kind: "new", quote: null, start: null }); setTab("comments") }
 
   // ---------- Selection → floating Comment button ----------
@@ -327,8 +330,8 @@ export default function App() {
 
   // ---------- Global wiring ----------
 
-  const A = useRef({ save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading, openLink })
-  A.current = { save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading, openLink }
+  const A = useRef({ save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading, openLink, checkUpdates })
+  A.current = { save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading, openLink, checkUpdates }
 
   useEffect(() => {
     api.rootDir().then((d) => (rootDir.current = d), err)
@@ -336,7 +339,12 @@ export default function App() {
       setLocation(loc)
       if (loc.unavailable) toast.warning("Your docs folder couldn’t be opened", { description: `Using the default folder instead of ${loc.unavailable}. You can choose it again in Settings.`, duration: 10000 })
     }, err)
-    loadSettings().then((s) => (setSettings(s), applySettings(s)), err)
+    loadSettings().then((s) => {
+      setSettings(s)
+      applySettings(s)
+      // Dev builds would only ever offer to replace themselves with the latest release.
+      if (s.checkUpdates && !import.meta.env.DEV) A.current.checkUpdates(true)
+    }, err)
     A.current.syncFromDisk()
     const onFocus = () => A.current.syncFromDisk()
     const onSel = () => A.current.placeFab()
@@ -368,6 +376,7 @@ export default function App() {
         else if (payload === "new-doc") a.newDoc()
         else if (payload === "search") setSearchOpen(true)
         else if (payload === "settings") setSettingsOpen(true)
+        else if (payload === "check-updates") a.checkUpdates(false)
         else if (payload === "reveal") api.revealRoot().catch(err)
         else if (payload === "export-pdf") a.exportPdf()
         else if (payload === "toggle-mode") a.switchMode(S.current.mode === "preview" ? "markdown" : "preview")
@@ -402,7 +411,7 @@ export default function App() {
         onSearch={() => setSearchOpen(true)} onSettings={() => setSettingsOpen(true)} onReveal={() => api.revealRoot().catch(err)}
       />
 
-      {settingsOpen && <SettingsPage settings={settings} onChange={updateSettings} onClose={closeSettings} location={location} onDocsFolder={changeDocsFolder} />}
+      {settingsOpen && <SettingsPage settings={settings} onChange={updateSettings} onClose={closeSettings} location={location} onDocsFolder={changeDocsFolder} onCheckUpdates={() => checkUpdates(false)} />}
 
       <main className={cn("flex min-h-0 min-w-0 flex-col", settingsOpen && "hidden")}>
         <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">

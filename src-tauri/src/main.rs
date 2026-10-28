@@ -408,6 +408,7 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
                 true,
                 &[
                     &PredefinedMenuItem::about(app, None, None)?,
+                    &MenuItem::with_id(app, "check-updates", "Check for Updates…", true, None::<&str>)?,
                     &sep()?,
                     &item("settings", "Settings…", "CmdOrCtrl+,")?,
                     &sep()?,
@@ -478,6 +479,8 @@ fn watch(app: &AppHandle, dir: &std::path::Path) -> notify::Result<notify::Recom
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let root = open_root(app.handle())?;
             app.manage(Mutex::new(watch(app.handle(), &root.dir)?));

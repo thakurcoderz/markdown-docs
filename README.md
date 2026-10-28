@@ -42,6 +42,7 @@ xattr -dr com.apple.quarantine "/Applications/Markdown Docs.app"
 - **Export PDF** — prints just the rendered doc, with no app chrome.
 - **Settings** (⌘,) — a settings page for app preferences: pick any font installed on your computer for the interface/docs and for code/the editor, and choose where your docs are stored. Saved to `settings.json` in the app data folder.
 - **Choose your docs folder** — keep docs anywhere, e.g. in a Dropbox, Google Drive or Syncthing folder to use them on several computers. When you switch, the app can copy your current docs and comments across; it never overwrites files that are already there.
+- **In-app updates** — the app checks for a new release when it opens (or via **Check for Updates…**) and offers to download, install and restart. Updates are verified with a signature first. On a `.deb` install you're asked for your password, since the package is installed system-wide. Turn the automatic check off in Settings → Updates.
 - Follows the system light/dark appearance.
 
 On Linux, use <kbd>Ctrl</kbd> wherever this README says <kbd>⌘</kbd>.
@@ -99,6 +100,8 @@ git tag v0.2.0 && git push origin v0.2.0
 ```
 
 The workflow runs the tests on macOS and Linux, builds a universal `.dmg` and `.app.zip` plus a Linux `.deb` and `.AppImage`, and publishes one GitHub Release with checksums and generated notes. **Actions → Release → Run workflow** does a dry run that uploads the builds as workflow artifacts without publishing. Adding the `APPLE_*` secrets listed at the top of the workflow turns on code signing and notarization.
+
+In-app updates need a signing key. The public half is `plugins.updater.pubkey` in `src-tauri/tauri.conf.json`; the private half is the `TAURI_SIGNING_PRIVATE_KEY` secret (plus `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` if it has one). With the secret set, the workflow signs the update files and adds a `latest.json` to the release, which installed apps check. Without it, releases still build but installed apps won't see them as updates. Keep the private key backed up: losing it means existing installs can't verify future updates.
 
 ### Run the tests
 

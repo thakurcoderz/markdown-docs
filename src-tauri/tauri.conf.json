@@ -30,6 +30,12 @@
       }
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU4NjNDQ0NEMDNFMzU2MkYKUldRdlZ1TUR6Y3hqV094Q2p5L1doV2xRaGFvd0pSNS9wcFV4WWErTmE4RzBaTmpSZzE3SURZRzMK",
+      "endpoints": ["https://github.com/thakurcoderz/markdown-docs/releases/latest/download/latest.json"]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": [

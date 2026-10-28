@@ -6,9 +6,11 @@ export type Settings = {
   appFont: string | null
   /** Font family for the editor and code blocks; null = system monospace. */
   codeFont: string | null
+  /** Look for a new version each time the app opens. */
+  checkUpdates: boolean
 }
 
-export const DEFAULTS: Settings = { appFont: null, codeFont: null }
+export const DEFAULTS: Settings = { appFont: null, codeFont: null, checkUpdates: true }
 
 export async function loadSettings(): Promise<Settings> {
   return { ...DEFAULTS, ...(await invoke<Partial<Settings>>("get_settings")) }
