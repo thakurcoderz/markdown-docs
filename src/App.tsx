@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { ask } from "@tauri-apps/plugin-dialog"
 import { toast } from "sonner"
-import { MessageSquarePlus, Plus } from "lucide-react"
+import { MessageSquarePlus } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -16,11 +16,13 @@ import { SearchDialog } from "@/components/SearchDialog"
 import { ResizeHandle } from "@/components/ResizeHandle"
 import { SettingsPage } from "@/components/SettingsPage"
 import { Sidebar } from "@/components/Sidebar"
+import { Welcome } from "@/components/Welcome"
 import { api, type Comment, type Doc, type Location, type TreeNode } from "@/lib/api"
 import { docLink } from "@/lib/links"
 import { anchor, enhance, findText, headingEls, readHeadings, selectionAnchor, type Heading } from "@/lib/preview"
 import { applySettings, DEFAULTS, loadSettings, saveSettings, type Settings } from "@/lib/settings"
 import { mod } from "@/lib/platform"
+import { addRecent, moveRecent, recentDocs } from "@/lib/recent"
 import { checkForUpdates } from "@/lib/updates"
 import { cn } from "@/lib/utils"
 
@@ -125,6 +127,7 @@ export default function App() {
     try { d = await api.readDoc(id) } catch (e) { return err(e) }
     // Keep the current editing mode when hopping between docs, unless a mode is requested.
     const m = startMode ?? S.current.mode
+    addRecent(id)
     setDoc(id); setDisk(d); setDraft(d.content); setMode(m)
     setActive(null); setCompose(null); setFab(null); setAutosavePaused(false)
     S.current = { ...S.current, doc: id, disk: d, draft: d.content, mode: m, dirty: false }
@@ -273,6 +276,7 @@ export default function App() {
     } finally {
       moving.current = false
     }
+    moveRecent(id, folder, next)
     if (cur && (folder ? cur.startsWith(id + "/") : cur === id)) {
       const nd = next + cur.slice(id.length)
       setDoc(nd)
@@ -371,7 +375,8 @@ export default function App() {
     return () => removeEventListener("keydown", onKey)
   }, [focus])
 
-  const showSidebar = settings.sidebarOpen && !focus
+  // Settings is a full page with its own navigation, so the docs sidebar steps aside.
+  const showSidebar = settings.sidebarOpen && !focus && !settingsOpen
   const showPanel = !!doc && !focus && (narrow ? panelOverlay : settings.panelOpen)
   const toggleSidebar = () => (setFocus(false), updateSettings({ sidebarOpen: !showSidebar }))
   const togglePanel = () => {
@@ -388,6 +393,14 @@ export default function App() {
   }
 
   const checkUpdates = (quiet: boolean) => checkForUpdates({ quiet, beforeRestart: confirmDiscard })
+
+  /** Recent docs that still exist, for the welcome screen. */
+  const recentInTree = () => {
+    const ids = new Set<string>()
+    const walk = (nodes: TreeNode[]) => nodes.forEach((n) => (n.children ? walk(n.children) : ids.add(n.id)))
+    walk(tree)
+    return recentDocs().filter((id) => ids.has(id)).slice(0, 6)
+  }
 
   const startNote = () => { setCompose({ kind: "new", quote: null, start: null }); openTab("comments") }
 
@@ -548,12 +561,7 @@ export default function App() {
             className={cn("flex min-h-0 min-w-0 flex-1 flex-col overflow-auto", doc && mode === "markdown" && "hidden")}
           >
             <article ref={previewRef} className={cn("markdown select-text", !doc && "hidden")} />
-            {!doc && (
-              <div className="m-auto grid justify-items-center gap-3 text-center text-sm text-muted-foreground">
-                <p>{tree.length ? "Pick a doc from the sidebar, or start a new one." : "Create your first doc to get started."}</p>
-                <Button onClick={newDoc}><Plus /> New doc</Button>
-              </div>
-            )}
+            {!doc && <Welcome hasDocs={tree.length > 0} recent={recentInTree()} onNew={newDoc} onSearch={() => setSearchOpen(true)} onOpen={openDoc} />}
           </div>
         </div>
       </main>
@@ -601,7 +609,7 @@ export default function App() {
               {doc ? (
                 <CommentsPanel
                   doc={doc} comments={comments} missing={missing} active={active} setActive={setActive}
-                  compose={compose} setCompose={setCompose} reload={() => loadComments()} jump={jumpToThread}
+                  compose={compose} setCompose={setCompose} reload={() => loadComments()} jump={jumpToThread} onAddNote={startNote}
                 />
               ) : (
                 <p className="p-4 text-sm text-muted-foreground">Open a doc to see its comments.</p>
