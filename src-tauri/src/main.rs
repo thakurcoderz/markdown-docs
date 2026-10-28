@@ -60,13 +60,7 @@ fn delete_doc(s: State<AppState>, id: String) -> Result<(), String> {
 
 /// Opens a path or URL with the system's default handler.
 fn open_external(target: impl AsRef<std::ffi::OsStr>) -> Result<(), String> {
-    let cmd = if cfg!(target_os = "macos") {
-        "open"
-    } else if cfg!(windows) {
-        "explorer"
-    } else {
-        "xdg-open"
-    };
+    let cmd = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
     std::process::Command::new(cmd).arg(target).spawn().map(drop).map_err(|e| e.to_string())
 }
 

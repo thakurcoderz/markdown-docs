@@ -16,8 +16,4 @@ The `.app.zip` holds the same app without the disk image.
 - **Ubuntu / Debian:** download the **`.deb`** and run `sudo apt install ./Markdown-Docs_*_amd64.deb`.
 - **Other distros:** download the **`.AppImage`**, run `chmod +x Markdown-Docs_*.AppImage`, then launch it.
 
-### Windows
-
-Download the **`_x64-setup.exe`** and run it. Windows SmartScreen may warn about an unsigned app: click **More info** → **Run anyway**.
-
 Checksums for every file are in `SHA256SUMS.txt`.

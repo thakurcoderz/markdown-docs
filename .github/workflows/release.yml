@@ -1,4 +1,4 @@
-# Builds the app for macOS (universal), Linux and Windows and publishes them as one GitHub Release.
+# Builds the app for macOS (universal) and Linux and publishes them as one GitHub Release.
 #
 # Release:  bump "version" in src-tauri/tauri.conf.json, commit, then
 #           git tag v<version> && git push origin v<version>
@@ -36,9 +36,6 @@ jobs:
           - os: ubuntu-24.04
             name: linux
             args: --bundles deb,appimage
-          - os: windows-latest
-            name: windows
-            args: --bundles nsis
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -114,10 +111,6 @@ jobs:
               b=src-tauri/target/release/bundle
               cp "$b/deb/Markdown Docs_${v}_amd64.deb" "out/Markdown-Docs_${v}_amd64.deb"
               cp "$b/appimage/Markdown Docs_${v}_amd64.AppImage" "out/Markdown-Docs_${v}_amd64.AppImage"
-              ;;
-            windows)
-              b=src-tauri/target/release/bundle
-              cp "$b/nsis/Markdown Docs_${v}_x64-setup.exe" "out/Markdown-Docs_${v}_x64-setup.exe"
               ;;
           esac
           ls -l out
