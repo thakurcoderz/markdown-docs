@@ -2,19 +2,30 @@
 
 [![CI](https://github.com/thakurcoderz/markdown-docs/actions/workflows/ci.yml/badge.svg)](https://github.com/thakurcoderz/markdown-docs/actions/workflows/ci.yml)
 
-A local macOS app for reading and editing Markdown docs, with comment threads anchored to the text — like Google Docs comments, but for plain `.md` files on your machine.
+A local app for macOS and Linux for reading and editing Markdown docs, with comment threads anchored to the text — like Google Docs comments, but for plain `.md` files on your machine.
 
-Built with [Tauri v2](https://tauri.app) (Rust backend, native WKWebView) and React + [shadcn/ui](https://ui.shadcn.com).
+**Website:** https://thakurcoderz.github.io/markdown-docs/
+
+Built with [Tauri v2](https://tauri.app) (Rust backend, native WKWebView on macOS / WebKitGTK on Linux) and React + [shadcn/ui](https://ui.shadcn.com).
 
 ## Download
 
-Get the latest **`.dmg`** from [Releases](https://github.com/thakurcoderz/markdown-docs/releases/latest). It's a universal build for Apple Silicon and Intel Macs on macOS 14 or later.
+Get the latest build from the [website](https://thakurcoderz.github.io/markdown-docs/#download) or [Releases](https://github.com/thakurcoderz/markdown-docs/releases/latest).
+
+### macOS
+
+Download the **`.dmg`**. It's a universal build for Apple Silicon and Intel Macs on macOS 14 or later.
 
 The app isn't signed yet, so on first launch right-click it → **Open**, or run:
 
 ```sh
 xattr -dr com.apple.quarantine "/Applications/Markdown Docs.app"
 ```
+
+### Linux
+
+- **Ubuntu / Debian:** download the **`.deb`** and run `sudo apt install ./Markdown-Docs_*_amd64.deb`. The app then appears in your applications menu.
+- **Other distros:** download the **`.AppImage`**, run `chmod +x Markdown-Docs_*.AppImage`, then launch it.
 
 ## Features
 
@@ -28,15 +39,22 @@ xattr -dr com.apple.quarantine "/Applications/Markdown Docs.app"
 - **Table of contents** — built from h1–h4, with smooth scrolling and scroll-spy highlighting.
 - **Anchored comments** — select text in the preview and click **Comment**, or add a general note. Threads support replies, edits, deletion, and resolve/reopen. Comment bodies are Markdown. If the quoted text disappears from the doc, the thread is flagged.
 - **Export PDF** — prints just the rendered doc, with no app chrome.
-- **Settings** (⌘,) — a settings page for app preferences, starting with fonts: pick any font installed on your Mac for the interface/docs and for code/the editor. Saved to `settings.json` in the app data folder.
+- **Settings** (⌘,) — a settings page for app preferences, starting with fonts: pick any font installed on your computer for the interface/docs and for code/the editor. Saved to `settings.json` in the app data folder.
 - Follows the system light/dark appearance.
+
+On Linux, use <kbd>Ctrl</kbd> wherever this README says <kbd>⌘</kbd>.
 
 ## Requirements
 
-- macOS 14 (Sonoma) or later — comment highlights use the CSS Custom Highlight API
 - [Rust](https://rustup.rs) (stable)
 - [Node.js](https://nodejs.org) 20.19+ and npm
-- Xcode Command Line Tools (`xcode-select --install`)
+- **macOS:** macOS 14 (Sonoma) or later — comment highlights use the CSS Custom Highlight API — and Xcode Command Line Tools (`xcode-select --install`)
+- **Linux (Ubuntu/Debian):** the WebKitGTK and build packages Tauri needs:
+
+  ```sh
+  sudo apt install build-essential pkg-config libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
+    libayatana-appindicator3-dev librsvg2-dev
+  ```
 
 ## Getting started
 
@@ -49,6 +67,8 @@ npm run dev        # run with hot reload
 
 ### Build the app
 
+On macOS:
+
 ```sh
 npm run build
 ```
@@ -60,6 +80,14 @@ Outputs:
 
 The build is unsigned. On first launch, right-click the app → **Open** (or allow it in System Settings → Privacy & Security).
 
+On Linux:
+
+```sh
+npx tauri build --bundles deb          # add ,appimage for an AppImage too
+```
+
+Output: `src-tauri/target/release/bundle/deb/Markdown Docs_<version>_amd64.deb`. Install it with `sudo apt install "./src-tauri/target/release/bundle/deb/Markdown Docs_<version>_amd64.deb"`.
+
 ### Publish a release
 
 Releases are built by GitHub Actions (`.github/workflows/release.yml`). Bump `version` in `src-tauri/tauri.conf.json`, commit, then push a matching tag:
@@ -68,7 +96,7 @@ Releases are built by GitHub Actions (`.github/workflows/release.yml`). Bump `ve
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-The workflow runs the tests, builds a universal `.dmg` and `.app.zip`, and publishes a GitHub Release with checksums and generated notes. **Actions → Release → Run workflow** does a dry run that uploads the builds as workflow artifacts without publishing. Adding the `APPLE_*` secrets listed at the top of the workflow turns on code signing and notarization.
+The workflow runs the tests on macOS and Linux, builds a universal `.dmg` and `.app.zip` plus a Linux `.deb` and `.AppImage`, and publishes one GitHub Release with checksums and generated notes. **Actions → Release → Run workflow** does a dry run that uploads the builds as workflow artifacts without publishing. Adding the `APPLE_*` secrets listed at the top of the workflow turns on code signing and notarization.
 
 ### Run the tests
 
@@ -81,8 +109,10 @@ cd src-tauri && cargo test  # backend
 
 ## Where your data lives
 
+On macOS the docs folder is `~/Library/Application Support/dev.thakurcoder.markdown-docs/Docs/`; on Linux it's `~/.local/share/dev.thakurcoder.markdown-docs/Docs/`.
+
 ```
-~/Library/Application Support/dev.thakurcoder.markdown-docs/Docs/
+Docs/
 ├── welcome.md
 ├── team/
 │   └── standup.md
@@ -91,7 +121,7 @@ cd src-tauri && cargo test  # backend
 # and next to Docs/: settings.json (app preferences)
 ```
 
-Use **File → Show Docs in Finder** (⇧⌘R) to open it. Folders and files starting with `.` are hidden from the sidebar. A doc's id is its path without `.md` (e.g. `team/standup`); comments are keyed by that id and follow the doc when you rename it in the app.
+Use **File → Show Docs in Finder** (⇧⌘R) to open it in your file manager. Folders and files starting with `.` are hidden from the sidebar. A doc's id is its path without `.md` (e.g. `team/standup`); comments are keyed by that id and follow the doc when you rename it in the app.
 
 ## Keyboard shortcuts
 
@@ -104,7 +134,7 @@ Use **File → Show Docs in Finder** (⇧⌘R) to open it. Folders and files sta
 | ⌘F | Find / replace in the editor |
 | ⌘E | Toggle Preview / Markdown |
 | ⌘P | Export PDF |
-| ⇧⌘R | Show docs in Finder |
+| ⇧⌘R | Show docs folder |
 | ⌘↩ / Esc | Save / cancel a comment |
 
 ## Project layout
@@ -138,12 +168,13 @@ src-tauri/src/           Rust backend
 - **Saving** — writes to a temp file, then renames it over the original. The file's mtime at load time is compared at save time to detect outside edits.
 - **Path safety** — every doc path is resolved and checked to stay inside the docs folder (no `../` traversal or symlink escapes).
 - **Comment anchoring** — a comment stores its quoted text and its character offset in the preview's text. To place a highlight, the app tries the offset first, then falls back to the first occurrence of the quote.
-- **Live updates** — an FSEvents watcher (via [notify](https://github.com/notify-rs/notify)) refreshes the tree and reloads the open doc when files change outside the app. Unsaved edits are never overwritten.
+- **Live updates** — a file watcher ([notify](https://github.com/notify-rs/notify): FSEvents on macOS, inotify on Linux) refreshes the tree and reloads the open doc when files change outside the app. Unsaved edits are never overwritten.
 - **Links** never navigate the app window: `#anchors` scroll the preview and web links open in your browser.
 
 ## Limitations
 
-- macOS only (the app is built around WKWebView and FSEvents).
+- macOS and Linux only; there's no Windows build yet.
+- Some menu items still use macOS wording on Linux (e.g. "Show Docs in Finder"), and Hide / Hide Others do nothing there.
 - No multiple libraries, sync, or comment authors yet.
 - Search rescans files on each query — instant for hundreds of docs, not built for tens of thousands.
 - Images inside dot-folders (e.g. `.assets/`) aren't loaded.
