@@ -103,19 +103,21 @@ export function SettingsPage({ settings, onChange, onClose, location, onDocsFold
       </nav>
       <ScrollArea className="min-h-0">
         <div className="mx-auto max-w-2xl px-8 py-8">
-          <h1 className="text-xl font-semibold">Settings</h1>
+          <h1 className="font-heading text-2xl font-semibold">Settings</h1>
           {section === "appearance" && (
             <section className="mt-6">
               <h2 className="text-sm font-medium text-muted-foreground">Appearance</h2>
               <Row title="Interface & document font" description="Used for the app and for rendered docs. Pick any font installed on your computer.">
-                <FontPicker value={settings.appFont} fonts={fonts} placeholder="Default (Geist)" onPick={(appFont) => onChange({ appFont })} />
+                <FontPicker value={settings.appFont} fonts={fonts} placeholder="Default (Geist + Newsreader)" onPick={(appFont) => onChange({ appFont })} />
               </Row>
               <Row title="Code font" description="Used in the Markdown editor and code blocks. Monospaced fonts work best.">
-                <FontPicker value={settings.codeFont} fonts={fonts} placeholder="Default (SF Mono)" onPick={(codeFont) => onChange({ codeFont })} />
+                <FontPicker value={settings.codeFont} fonts={fonts} placeholder="Default (IBM Plex Mono)" onPick={(codeFont) => onChange({ codeFont })} />
               </Row>
               <div className="mt-6 rounded-lg border p-5">
-                <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Preview</p>
-                <p className="mt-2 font-sans text-[15px] leading-relaxed">The quick brown fox jumps over the lazy dog. 0123456789</p>
+                <p className="text-xs font-mono font-medium tracking-[0.12em] text-muted-foreground uppercase">Preview</p>
+                <p className="mt-2 font-heading text-xl font-semibold">A heading in your docs</p>
+                <p className="mt-1 text-[17px] leading-relaxed" style={{ fontFamily: "var(--doc-font)" }}>The quick brown fox jumps over the lazy dog. 0123456789</p>
+                <p className="mt-2 font-sans text-sm text-muted-foreground">Interface text looks like this.</p>
                 <pre className="mt-3 rounded-md bg-muted px-3 py-2 font-mono text-[13px]">{"fn main() {\n    println!(\"Hello, docs!\");\n}"}</pre>
               </div>
             </section>
@@ -143,7 +145,7 @@ export function SettingsPage({ settings, onChange, onClose, location, onDocsFold
                 </div>
               </Row>
               <div className="rounded-lg border bg-muted/40 px-4 py-3">
-                <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{location?.isDefault ? "Current folder (default)" : "Current folder"}</p>
+                <p className="text-xs font-mono font-medium tracking-[0.12em] text-muted-foreground uppercase">{location?.isDefault ? "Current folder (default)" : "Current folder"}</p>
                 <p className="mt-1 font-mono text-[13px] break-all select-text">{location?.dir ?? "…"}</p>
               </div>
               {location?.unavailable && (

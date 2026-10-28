@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core"
 
 /** All user preferences. Add new settings here with a default; old settings.json files merge over these. */
 export type Settings = {
-  /** Font family for the interface and rendered docs; null = app default. */
+  /** Font family for the interface and rendered docs; null = app default (Geist for the interface, Newsreader/Fraunces for docs). */
   appFont: string | null
   /** Font family for the editor and code blocks; null = system monospace. */
   codeFont: string | null
@@ -36,7 +36,10 @@ export function applySettings(s: Settings) {
   const set = (name: string, family: string | null, fallback: string) =>
     family ? root.setProperty(name, `${cssFamily(family)}, ${fallback}`) : root.removeProperty(name)
   set("--app-font", s.appFont, "'Geist Variable', sans-serif")
-  set("--code-font", s.codeFont, 'ui-monospace, "SF Mono", Menlo, monospace')
+  // A chosen font replaces the doc text and heading fonts too, as the setting's name says.
+  set("--doc-font", s.appFont, "Georgia, serif")
+  set("--heading-font", s.appFont, "Georgia, serif")
+  set("--code-font", s.codeFont, "'IBM Plex Mono', ui-monospace, Menlo, monospace")
 }
 
 /**

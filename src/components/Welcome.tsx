@@ -17,7 +17,7 @@ export function Welcome({ hasDocs, recent, onNew, onSearch, onOpen }: Props) {
     return (
       <div className="m-auto grid max-w-sm justify-items-center gap-3 px-6 text-center">
         <FileText className="size-10 text-muted-foreground/60" strokeWidth={1.25} />
-        <h2 className="text-lg font-semibold">Welcome to Markdown Docs</h2>
+        <h2 className="font-heading text-2xl font-semibold">Welcome to Markdown Docs</h2>
         <p className="text-sm text-muted-foreground">
           Every doc is a plain Markdown file in your docs folder. Write, preview, and leave comments, all in one place.
         </p>
@@ -26,6 +26,8 @@ export function Welcome({ hasDocs, recent, onNew, onSearch, onOpen }: Props) {
     )
   return (
     <div className="m-auto w-full max-w-md px-6">
+      <h2 className="font-heading text-3xl font-semibold tracking-tight">Markdown Docs</h2>
+      <p className="mt-1 mb-6 text-lg text-muted-foreground italic" style={{ fontFamily: "var(--doc-font)" }}>Pick up where you left off, or start something new.</p>
       <div className="grid grid-cols-2 gap-2">
         <Button variant="outline" className="h-auto justify-start py-3" onClick={onNew}>
           <Plus /> <span className="flex-1 text-left">New doc</span>
@@ -38,7 +40,7 @@ export function Welcome({ hasDocs, recent, onNew, onSearch, onOpen }: Props) {
       </div>
       {recent.length > 0 && (
         <section className="mt-8">
-          <h2 className="mb-2 px-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">Recent</h2>
+          <h2 className="mb-2 px-2 text-xs font-mono font-medium tracking-[0.12em] text-muted-foreground uppercase">Recent</h2>
           <ul className="grid">
             {recent.map((id) => {
               const slash = id.lastIndexOf("/")
