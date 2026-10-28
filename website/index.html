@@ -300,6 +300,16 @@
           <p>GitHub-flavored Markdown with tables and task lists, highlighted code, KaTeX math and Mermaid diagrams.</p>
         </div>
         <div class="card">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/></svg></div>
+          <h3>Paste or drop images</h3>
+          <p>Paste a screenshot or drag image files into the editor. They're saved next to the doc and linked where your cursor is.</p>
+        </div>
+        <div class="card">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/></svg></div>
+          <h3>Drag to organize</h3>
+          <p>Drag docs and folders around the sidebar, or rename them. Links and images in every doc are updated so nothing breaks.</p>
+        </div>
+        <div class="card">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg></div>
           <h3>Safe autosave</h3>
           <p>Saves a second after you stop typing, atomically. If the file changed on disk, you're asked before anything is overwritten.</p>
@@ -310,14 +320,19 @@
           <p>Relative links open the target doc at the right heading, and images load relative to the doc.</p>
         </div>
         <div class="card">
-          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></div>
-          <h3>Table of contents</h3>
-          <p>Built from your headings, with smooth scrolling and a highlight that follows where you are.</p>
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18"/></svg></div>
+          <h3>Flexible layout</h3>
+          <p>Hide or resize the sidebar and the contents/comments panel, or switch to Focus Mode to see only the doc. Small windows stay tidy too.</p>
         </div>
         <div class="card">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></div>
           <h3>Export to PDF</h3>
           <p>Print just the rendered doc, with no app chrome, ready to share.</p>
+        </div>
+        <div class="card">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></div>
+          <h3>Updates itself</h3>
+          <p>The app checks for new versions and installs them for you, after verifying they're signed. Turn it off anytime in Settings.</p>
         </div>
       </div>
     </div>
@@ -329,6 +344,7 @@
         <h2>Your docs, your disk</h2>
         <p>No account, no cloud, no lock-in. Docs live in an ordinary folder, and name a doc <code>team/standup</code> to group it under "team" automatically.</p>
         <ul>
+          <li>Keep them in any folder you like, such as one Dropbox, Google Drive or Syncthing syncs between computers.</li>
           <li>Comments are stored in a local SQLite file next to your docs.</li>
           <li>Files and folders starting with <code>.</code> stay hidden.</li>
           <li>Paths are checked so nothing escapes the docs folder.</li>
@@ -362,6 +378,9 @@
         <div class="key">Settings <kbd>⌘,</kbd></div>
         <div class="key">Show docs folder <kbd>⇧⌘R</kbd></div>
         <div class="key">Save comment <kbd>⌘↩</kbd></div>
+        <div class="key">Toggle sidebar <kbd>⌘\</kbd></div>
+        <div class="key">Toggle panel <kbd>⇧⌘\</kbd></div>
+        <div class="key">Focus mode <kbd>⇧⌘F</kbd></div>
       </div>
     </div>
   </section>
