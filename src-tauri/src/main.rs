@@ -58,10 +58,16 @@ fn delete_doc(s: State<AppState>, id: String) -> Result<(), String> {
     })
 }
 
+/// Opens a path or URL with the system's default handler.
+fn open_external(target: impl AsRef<std::ffi::OsStr>) -> Result<(), String> {
+    let cmd = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    std::process::Command::new(cmd).arg(target).spawn().map(drop).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn reveal_root(s: State<AppState>) -> Result<(), String> {
     let dir = s.lock().unwrap().dir.clone();
-    std::process::Command::new("open").arg(dir).spawn().map(drop).map_err(|e| e.to_string())
+    open_external(dir)
 }
 
 #[tauri::command]
@@ -137,12 +143,24 @@ fn set_settings(app: AppHandle, settings: serde_json::Value) -> Result<(), Strin
 }
 
 /// Installed font families, from CoreText. Dot-prefixed families are macOS-internal and not usable by name.
-#[tauri::command]
-fn list_fonts() -> Vec<String> {
+#[cfg(target_os = "macos")]
+fn font_families() -> Vec<String> {
     use objc2_core_foundation::CFString;
     let all = unsafe { objc2_core_text::CTFontManagerCopyAvailableFontFamilyNames() };
     let all = unsafe { all.cast_unchecked::<CFString>() };
-    let mut v: Vec<String> = all.iter().map(|s| s.to_string()).filter(|s| !s.starts_with('.')).collect();
+    all.iter().map(|s| s.to_string()).collect()
+}
+
+/// Installed font families, from fontconfig. A font can list several comma-separated family names.
+#[cfg(not(target_os = "macos"))]
+fn font_families() -> Vec<String> {
+    let out = std::process::Command::new("fc-list").args([":", "family"]).output().map(|o| o.stdout).unwrap_or_default();
+    String::from_utf8_lossy(&out).lines().flat_map(|l| l.split(',')).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+}
+
+#[tauri::command]
+fn list_fonts() -> Vec<String> {
+    let mut v: Vec<String> = font_families().into_iter().filter(|s| !s.starts_with('.')).collect();
     v.sort_by(|a, b| docs::natural_cmp(a, b));
     v.dedup();
     v
@@ -153,7 +171,7 @@ fn open_url(url: String) -> Result<(), String> {
     if !(url.starts_with("https://") || url.starts_with("http://") || url.starts_with("mailto:")) {
         return Err("Unsupported link".into());
     }
-    std::process::Command::new("open").arg(url).spawn().map(drop).map_err(|e| e.to_string())
+    open_external(url)
 }
 
 #[tauri::command]
@@ -269,6 +287,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     #[test]
+    #[cfg(target_os = "macos")]
     fn lists_installed_fonts() {
         let fonts = super::list_fonts();
         assert!(fonts.iter().any(|f| f == "Helvetica"), "{} fonts", fonts.len());
