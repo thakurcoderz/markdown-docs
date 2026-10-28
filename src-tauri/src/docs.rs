@@ -167,9 +167,10 @@ pub fn delete(root: &Path, id: &str) -> Result<(), String> {
     trash::delete(doc_path(root, id)?).map_err(|e| e.to_string())
 }
 
+/// Doc ids always use '/', matching `tree`, even where the OS separator is '\'.
 fn id_of(root: &Path, p: &Path) -> String {
     let rel = p.strip_prefix(root).unwrap_or(p).with_extension("");
-    rel.to_string_lossy().into_owned()
+    rel.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/")
 }
 
 fn mtime(p: &Path) -> Result<String, String> {
@@ -193,7 +194,8 @@ pub fn save(root: &Path, id: &str, content: &str, expected: &str, force: bool) -
     let res = (|| {
         fs::write(&tmp, content)?;
         fs::set_permissions(&tmp, fs::metadata(&p)?.permissions())?;
-        fs::File::open(&tmp)?.sync_all()?;
+        // Write access: Windows refuses to flush a read-only handle.
+        fs::OpenOptions::new().write(true).open(&tmp)?.sync_all()?;
         fs::rename(&tmp, &p)
     })();
     if let Err(e) = res {
