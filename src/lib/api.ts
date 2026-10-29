@@ -31,7 +31,14 @@ export const api = {
   readDoc: (id: string) => invoke<Doc>("read_doc", { id }),
   saveDoc: (id: string, content: string, mtime: string, force: boolean) =>
     invoke<string>("save_doc", { id, content, mtime, force }),
-  createDoc: (id: string) => invoke<string>("create_doc", { id }),
+  /** Creates a doc from template `template` (null = blank with default properties). Returns its id. */
+  createDoc: (id: string, template: string | null = null) => invoke<string>("create_doc", { id, template }),
+  /** Template names from .docs/templates ("Blank" first); the folder is created with starters if missing. */
+  listTemplates: () => invoke<string[]>("list_templates"),
+  saveTemplate: (name: string, text: string) => invoke<void>("save_template", { name, text }),
+  revealTemplates: () => invoke<void>("reveal_templates"),
+  /** Once per docs folder, adds properties to docs that have none. Returns how many changed. */
+  addMissingProperties: () => invoke<number>("add_missing_properties"),
   renameDoc: (from: string, to: string) => invoke<string>("rename_doc", { from, to }),
   deleteDoc: (id: string) => invoke<void>("delete_doc", { id }),
   /** Renames (or moves) a folder to the id `to`, fixing relative links. Returns the new id. */

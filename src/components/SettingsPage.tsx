@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react"
 import { getVersion } from "@tauri-apps/api/app"
 import { open } from "@tauri-apps/plugin-dialog"
-import { ArrowLeft, Check, ChevronsUpDown, FolderOpen, Palette, RefreshCw } from "lucide-react"
+import { ArrowLeft, Check, ChevronsUpDown, FolderOpen, LayoutTemplate, Palette, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
-import type { Location } from "@/lib/api"
+import { api, type Location } from "@/lib/api"
 import { fontAvailable, listFonts, type Settings } from "@/lib/settings"
 import { cn } from "@/lib/utils"
 
@@ -26,6 +26,7 @@ type Props = {
 const SECTIONS = [
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "storage", label: "Docs folder", icon: FolderOpen },
+  { id: "templates", label: "Templates", icon: LayoutTemplate },
   { id: "updates", label: "Updates", icon: RefreshCw },
 ] as const
 
@@ -155,6 +156,7 @@ export function SettingsPage({ settings, onChange, onClose, location, onDocsFold
               )}
             </section>
           )}
+          {section === "templates" && <TemplatesSection />}
           {section === "updates" && (
             <section className="mt-6">
               <h2 className="text-sm font-medium text-muted-foreground">Updates</h2>
@@ -175,5 +177,39 @@ export function SettingsPage({ settings, onChange, onClose, location, onDocsFold
         </div>
       </ScrollArea>
     </div>
+  )
+}
+
+/** Lists the templates in .docs/templates and opens the folder for editing them. */
+function TemplatesSection() {
+  const [names, setNames] = useState<string[] | null>(null)
+  useEffect(() => void api.listTemplates().then(setNames, (e) => toast.error(String(e))), [])
+  return (
+    <section className="mt-6">
+      <h2 className="text-sm font-medium text-muted-foreground">Templates</h2>
+      <Row
+        title="Templates for new docs"
+        description="Each template is a Markdown file in the .docs/templates folder inside your docs folder. Add, edit or delete files there; new docs can start from any of them."
+      >
+        <Button variant="outline" className="shrink-0" onClick={() => api.revealTemplates().catch((e) => toast.error(String(e)))}>
+          <FolderOpen /> Open folder
+        </Button>
+      </Row>
+      <div className="flex flex-wrap gap-1.5 py-4">
+        {names?.map((n) => (
+          <span key={n} className="flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-sm"><LayoutTemplate className="size-3.5 opacity-60" /> {n}</span>
+        ))}
+      </div>
+      <div className="rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+        <p>
+          These placeholders are filled in when a doc is created: <code className="font-mono text-foreground">{"{{title}}"}</code> (the doc’s name),{" "}
+          <code className="font-mono text-foreground">{"{{date}}"}</code> and <code className="font-mono text-foreground">{"{{time}}"}</code>.
+        </p>
+        <p className="mt-2">
+          The block between the <code className="font-mono text-foreground">---</code> lines at the top holds the doc’s properties (title, description, tags, status, dates and any fields you add).
+          Saving a doc keeps its <code className="font-mono text-foreground">updated</code> date current. Use “Save as template…” in a doc’s ⋯ menu to turn it into a template.
+        </p>
+      </div>
+    </section>
   )
 }

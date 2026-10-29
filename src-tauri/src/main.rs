@@ -3,6 +3,7 @@
 mod comments;
 mod docs;
 mod history;
+mod meta;
 mod relink;
 
 use rusqlite::Connection;
@@ -172,8 +173,30 @@ fn set_docs_folder(app: AppHandle, s: State<AppState>, path: Option<String>, cop
 }
 
 #[tauri::command]
-fn create_doc(s: State<AppState>, id: String) -> Result<String, String> {
-    with_root(&s, |r| docs::create(&r.dir, &id))
+fn create_doc(s: State<AppState>, id: String, template: Option<String>) -> Result<String, String> {
+    with_root(&s, |r| docs::create(&r.dir, &id, template.as_deref()))
+}
+
+#[tauri::command]
+fn list_templates(s: State<AppState>) -> Result<Vec<String>, String> {
+    with_root(&s, |r| meta::list_templates(&r.dir))
+}
+
+#[tauri::command]
+fn save_template(s: State<AppState>, name: String, text: String) -> Result<(), String> {
+    with_root(&s, |r| meta::save_template(&r.dir, &name, &text))
+}
+
+#[tauri::command]
+fn reveal_templates(s: State<AppState>) -> Result<(), String> {
+    let dir = with_root(&s, |r| meta::ensure_templates(&r.dir))?;
+    open_external(dir)
+}
+
+/// Once per docs folder, adds properties to docs that have none. Returns how many changed.
+#[tauri::command]
+fn add_missing_properties(s: State<AppState>) -> Result<usize, String> {
+    with_root(&s, |r| meta::migrate(&r.dir))
 }
 
 /// Moves comments after a relocation to `id`. They follow even when only the link rewrite failed
@@ -588,7 +611,7 @@ fn main() {
             root_dir, create_doc, rename_doc, delete_doc, reveal_root, tree, read_doc, save_doc, search, render, list_comments, add_comment, edit_comment,
             delete_comment, resolve_comment, get_settings, set_settings, list_fonts, open_url, print, quit, docs_location,
             set_docs_folder, save_image, import_images, paste_image, move_item, rename_folder, delete_folder,
-            list_versions, read_version, restore_version
+            list_versions, read_version, restore_version, list_templates, save_template, reveal_templates, add_missing_properties
         ])
         .run(tauri::generate_context!())
         .expect("error while running app");
