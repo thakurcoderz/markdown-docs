@@ -29,6 +29,8 @@ import { addRecent, moveRecent, recentDocs } from "@/lib/recent"
 import { checkForUpdates } from "@/lib/updates"
 import { cn } from "@/lib/utils"
 import { countWords } from "@/lib/words"
+import { addProperties, localDate, readProperties, withUpdated } from "@/lib/properties"
+import { PropertiesCard } from "@/components/PropertiesCard"
 
 const err = (e: unknown) => toast.error(String(e))
 const AUTOSAVE_MS = 1000
@@ -173,20 +175,25 @@ export default function App() {
     if (saving.current) return false
     if (!auto) setAutosavePaused(false)
     saving.current = true
+    // Saving keeps the `updated` property current.
+    const content = withUpdated(draft, localDate())
     try {
       let mtime: string
       try {
-        mtime = await api.saveDoc(doc, draft, disk.mtime, false)
+        mtime = await api.saveDoc(doc, content, disk.mtime, false)
       } catch (e) {
         if (e !== "conflict") throw e
         const ok = await ask(`“${doc}” changed on disk after you opened it. Overwrite it with your version?`,
           { title: "File changed on disk", kind: "warning", okLabel: "Overwrite", cancelLabel: "Cancel" })
         if (!ok) return setAutosavePaused(true), false
-        mtime = await api.saveDoc(doc, draft, disk.mtime, true)
+        mtime = await api.saveDoc(doc, content, disk.mtime, true)
       }
-      const saved = { content: draft, mtime }
+      const saved = { content, mtime }
       setDisk(saved)
-      S.current = { ...S.current, disk: saved, dirty: S.current.draft !== draft }
+      // A bumped date goes into the editor too, along with anything typed while saving.
+      const next = content === draft ? S.current.draft : withUpdated(S.current.draft, localDate())
+      if (next !== S.current.draft) setDraft(next)
+      S.current = { ...S.current, disk: saved, draft: next, dirty: next !== content }
       return true
     } catch (e) {
       setAutosavePaused(true)
@@ -285,15 +292,41 @@ export default function App() {
     toast.success("Version restored")
   }
 
-  const newDoc = () =>
+  /** Asks for a name and template, then creates the doc and opens it for editing. `initial` prefills a folder. */
+  const newDoc = async (initial = "") => {
+    let templates: string[] = []
+    try { templates = await api.listTemplates() } catch (e) { err(e) }
     setNameReq({
-      title: "New doc", action: "Create", initial: "",
-      submit: async (name) => {
-        const id = await api.createDoc(name)
+      title: "New doc", action: "Create", initial, select: initial ? "end" : "all", templates,
+      submit: async (name, template) => {
+        const id = await api.createDoc(name, template)
         await refreshTree()
         await openDoc(id, S.current.mode === "preview" ? "markdown" : S.current.mode)
       },
     })
+  }
+
+  /** Inserts the default properties at the top of the open doc (it autosaves like any edit). */
+  const addDocProperties = async () => {
+    const { doc, draft } = S.current
+    if (!doc || readProperties(draft)) return
+    const next = addProperties(draft, doc.split("/").pop()!, localDate())
+    setDraft(next)
+    S.current = { ...S.current, draft: next, dirty: next !== S.current.disk?.content }
+  }
+
+  const saveAsTemplate = () => {
+    const { doc } = S.current
+    if (!doc) return
+    setNameReq({
+      title: "Save as template", action: "Save template", initial: doc.split("/").pop()!,
+      description: "New docs can start from this one. Its title and dates become placeholders that are filled in for each new doc.",
+      submit: async (name) => {
+        await api.saveTemplate(name, S.current.draft)
+        toast.success(`Saved template “${name}”`, { description: "Pick it when creating a new doc." })
+      },
+    })
+  }
 
   // Set while a move runs, so the watcher's sync doesn't mistake the open doc's old path for a deletion.
   const moving = useRef(false)
@@ -341,15 +374,7 @@ export default function App() {
       },
     })
 
-  const newDocIn = (folder: string) =>
-    setNameReq({
-      title: "New doc", action: "Create", initial: `${folder}/`, select: "end",
-      submit: async (name) => {
-        const id = await api.createDoc(name)
-        await refreshTree()
-        await openDoc(id, S.current.mode === "preview" ? "markdown" : S.current.mode)
-      },
-    })
+  const newDocIn = (folder: string) => newDoc(`${folder}/`)
 
   const deleteFolder = async (id: string) => {
     const inside = (d: string) => d.startsWith(id + "/")
@@ -383,11 +408,20 @@ export default function App() {
     )
     try {
       const loc = await api.setDocsFolder(path, copy)
+      addMissingProperties()
       closeDoc()
       setLocation(loc)
       rootDir.current = loc.dir
       refreshTree()
       toast.success(copy ? "Docs copied to the new folder" : "Docs folder changed", { description: loc.dir })
+    } catch (e) { err(e) }
+  }
+
+  /** First time a docs folder is opened: give docs without properties the default ones. */
+  const addMissingProperties = async () => {
+    try {
+      const n = await api.addMissingProperties()
+      if (n) toast.success(`Added properties to ${n} ${n === 1 ? "doc" : "docs"}`, { description: "Each doc’s original text is in its version history.", duration: 8000 })
     } catch (e) { err(e) }
   }
 
@@ -486,8 +520,8 @@ export default function App() {
 
   // ---------- Global wiring ----------
 
-  const A = useRef({ save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading, openLink, checkUpdates, toggleSidebar, togglePanel, setFocus, openFind, openTab })
-  A.current = { save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading, openLink, checkUpdates, toggleSidebar, togglePanel, setFocus, openFind, openTab }
+  const A = useRef({ save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading, openLink, checkUpdates, toggleSidebar, togglePanel, setFocus, openFind, openTab, addMissingProperties })
+  A.current = { save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading, openLink, checkUpdates, toggleSidebar, togglePanel, setFocus, openFind, openTab, addMissingProperties }
 
   useEffect(() => {
     api.rootDir().then((d) => (rootDir.current = d), err)
@@ -502,7 +536,7 @@ export default function App() {
       // Dev builds would only ever offer to replace themselves with the latest release.
       if (s.checkUpdates && !import.meta.env.DEV) A.current.checkUpdates(true)
     }, err)
-    A.current.syncFromDisk()
+    A.current.addMissingProperties().then(() => A.current.syncFromDisk())
     const onFocus = () => A.current.syncFromDisk()
     const onSel = () => A.current.placeFab()
     // Links never navigate the webview: anchors scroll, .md links open the doc, web links open in the browser.
@@ -567,13 +601,14 @@ export default function App() {
 
   const deferredDraft = useDeferredValue(draft)
   const words = useMemo(() => countWords(deferredDraft), [deferredDraft])
+  const properties = useMemo(() => readProperties(deferredDraft), [deferredDraft])
   const openCount = comments.filter((c) => c.parent_id == null && !c.resolved).length
 
   return (
     <div className="relative flex h-screen overflow-hidden select-none">
       {showSidebar && <Sidebar
         style={{ width: widths.sidebar }}
-        tree={tree} current={doc} onOpen={openDoc} onNew={newDoc} onRename={(id) => renameItem(id, false)} onMove={moveItem} onDelete={deleteDoc}
+        tree={tree} current={doc} onOpen={openDoc} onNew={() => newDoc()} onRename={(id) => renameItem(id, false)} onMove={moveItem} onDelete={deleteDoc}
         onRenameFolder={(id) => renameItem(id, true)} onDeleteFolder={deleteFolder} onNewIn={newDocIn}
         onSearch={() => setSearchOpen(true)} onSettings={() => setSettingsOpen(true)} onReveal={() => api.revealRoot().catch(err)}
       />}
@@ -595,6 +630,7 @@ export default function App() {
           onAddNote={startNote} onExportPdf={exportPdf} onRename={() => doc && renameItem(doc, false)}
           onReveal={() => api.revealRoot().catch(err)} onFocus={() => setFocus(true)} onDelete={() => doc && deleteDoc(doc)}
           onFind={() => openFind(false)} onHistory={() => openTab("history")}
+          hasProperties={!!properties} onAddProperties={addDocProperties} onSaveTemplate={saveAsTemplate}
         />
         <div className="relative flex min-h-0 flex-1">
           {doc && viewing && (
@@ -610,8 +646,9 @@ export default function App() {
             onScroll={() => (spy(), placeFab())}
             className={cn("flex min-h-0 min-w-0 flex-1 flex-col overflow-auto", doc && (mode === "markdown" || viewing) && "hidden")}
           >
+            {doc && properties && <PropertiesCard props={properties} heading={headings.find((h) => h.level === 1)?.text} />}
             <article ref={previewRef} className={cn("markdown select-text", !doc && "hidden")} />
-            {!doc && <Welcome hasDocs={tree.length > 0} recent={recentInTree()} onNew={newDoc} onSearch={() => setSearchOpen(true)} onOpen={openDoc} />}
+            {!doc && <Welcome hasDocs={tree.length > 0} recent={recentInTree()} onNew={() => newDoc()} onSearch={() => setSearchOpen(true)} onOpen={openDoc} />}
           </div>
           {doc && find && !viewing && (
             <FindBar

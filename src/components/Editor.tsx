@@ -4,7 +4,7 @@ import { markdown } from "@codemirror/lang-markdown"
 import { languages } from "@codemirror/language-data"
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language"
 import { search } from "@codemirror/search"
-import { EditorState, Prec } from "@codemirror/state"
+import { EditorState, Prec, Transaction } from "@codemirror/state"
 import { EditorView, keymap } from "@codemirror/view"
 import { tags as t } from "@lezer/highlight"
 import { getCurrentWebview } from "@tauri-apps/api/webview"
@@ -177,10 +177,17 @@ export function Editor({ docKey, value, onChange, onView, onFind }: Props) {
     }
   }, [docKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // A reload from disk replaces the text without remounting.
+  // A reload from disk (or a bumped `updated` date) changes the text without remounting. Only the changed middle is
+  // replaced, so the cursor stays put.
   useEffect(() => {
     const v = view.current
-    if (v && v.state.doc.toString() !== value) v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: value } })
+    const cur = v?.state.doc.toString()
+    if (!v || cur === undefined || cur === value) return
+    let s = 0
+    while (s < cur.length && s < value.length && cur[s] === value[s]) s++
+    let e = 0
+    while (e < cur.length - s && e < value.length - s && cur[cur.length - 1 - e] === value[value.length - 1 - e]) e++
+    v.dispatch({ changes: { from: s, to: cur.length - e, insert: value.slice(s, value.length - e) }, annotations: Transaction.addToHistory.of(false) })
   }, [value])
 
   return <div ref={host} className="h-full min-h-0" />

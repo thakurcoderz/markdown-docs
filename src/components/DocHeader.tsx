@@ -1,4 +1,4 @@
-import { Check, Code, Columns2, Eye, FileDown, FolderOpen, History, Maximize2, MessageSquareText, MoreHorizontal, PanelLeft, PanelRight, Pencil, Save, Search, Trash2 } from "lucide-react"
+import { Check, Code, Columns2, Eye, FileDown, FolderOpen, History, LayoutTemplate, ListPlus, Maximize2, MessageSquareText, MoreHorizontal, PanelLeft, PanelRight, Pencil, Save, Search, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -39,6 +39,10 @@ type Props = {
   onDelete: () => void
   onFind: () => void
   onHistory: () => void
+  /** The doc has a properties block; without one the menu offers to add it. */
+  hasProperties: boolean
+  onAddProperties: () => void
+  onSaveTemplate: () => void
 }
 
 /** Top bar of the doc area: panel toggles, folder path + doc name, save state, view switch and a ⋯ menu. */
@@ -97,6 +101,8 @@ export function DocHeader(p: Props) {
               <DropdownMenuItem onClick={p.onAddNote}><MessageSquareText /> Add note</DropdownMenuItem>
               <DropdownMenuItem onClick={p.onFind}><Search /> Find… <DropdownMenuShortcut>{mod}F</DropdownMenuShortcut></DropdownMenuItem>
               <DropdownMenuItem onClick={p.onHistory}><History /> Version history</DropdownMenuItem>
+              {!p.hasProperties && <DropdownMenuItem onClick={p.onAddProperties}><ListPlus /> Add properties</DropdownMenuItem>}
+              <DropdownMenuItem onClick={p.onSaveTemplate}><LayoutTemplate /> Save as template…</DropdownMenuItem>
               <DropdownMenuItem onClick={p.onExportPdf}><FileDown /> Export PDF… <DropdownMenuShortcut>{mod}P</DropdownMenuShortcut></DropdownMenuItem>
               <DropdownMenuItem onClick={p.onFocus}><Maximize2 /> Focus mode <DropdownMenuShortcut>{mod}{shift}F</DropdownMenuShortcut></DropdownMenuItem>
               <DropdownMenuSeparator />

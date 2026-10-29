@@ -156,6 +156,8 @@
 .markdown h3 { font-size: 1.28em; }
 .markdown h4 { font-size: 1.08em; }
 .markdown > :first-child { @apply mt-0; }
+.properties { @apply mx-auto w-full max-w-[820px] px-10 pt-8; }
+.properties + .markdown { @apply pt-5; }
 .markdown p, .markdown ul, .markdown ol, .markdown blockquote, .markdown pre { @apply my-4; }
 .markdown ul { @apply list-disc pl-6; }
 .markdown ol { @apply list-decimal pl-6; }

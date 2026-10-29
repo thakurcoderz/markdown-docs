@@ -2176,6 +2176,7 @@ name = "markdown-docs"
 version = "0.9.0"
 dependencies = [
  "ammonia",
+ "chrono",
  "comrak",
  "gtk",
  "notify",

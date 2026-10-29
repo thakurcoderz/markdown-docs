@@ -9,8 +9,8 @@ use std::time::UNIX_EPOCH;
 #[derive(Serialize)]
 pub struct Node {
     name: String,
-    id: String,
-    children: Option<Vec<Node>>,
+    pub(crate) id: String,
+    pub(crate) children: Option<Vec<Node>>,
 }
 
 #[derive(Serialize)]
@@ -148,11 +148,11 @@ fn new_doc_path(root: &Path, id: &str) -> Result<PathBuf, String> {
     Ok(p)
 }
 
-/// Returns the normalized id that was created.
-pub fn create(root: &Path, id: &str) -> Result<String, String> {
+/// Creates a doc from template `template` (None = blank, with default properties). Returns the normalized id.
+pub fn create(root: &Path, id: &str, template: Option<&str>) -> Result<String, String> {
     let p = new_doc_path(root, id)?;
-    let title = p.file_stem().unwrap().to_string_lossy();
-    fs::write(&p, format!("# {title}\n\n")).map_err(|e| e.to_string())?;
+    let text = crate::meta::new_doc_text(root, &p.file_stem().unwrap().to_string_lossy(), template)?;
+    fs::write(&p, text).map_err(|e| e.to_string())?;
     Ok(id_of(root, &p))
 }
 
@@ -246,7 +246,7 @@ pub fn restore(root: &Path, id: &str, version: &str) -> Result<String, String> {
 }
 
 /// Replaces an existing file via a temp file + rename, keeping its permissions.
-fn write_atomic(p: &Path, content: &str) -> Result<(), String> {
+pub(crate) fn write_atomic(p: &Path, content: &str) -> Result<(), String> {
     let tmp = p.with_file_name(format!(".{}.{}.tmp", p.file_name().unwrap().to_string_lossy(), std::process::id()));
     let res = (|| {
         fs::write(&tmp, content)?;
@@ -393,6 +393,8 @@ pub fn render(md: &str) -> String {
     o.extension.autolink = true;
     o.extension.footnotes = true;
     o.extension.math_dollars = true;
+    // Properties are shown as a card by the app, not as text.
+    o.extension.front_matter_delimiter = Some("---".into());
     o.extension.header_id_prefix = Some(String::new());
     o.render.r#unsafe = true;
     let html = comrak::markdown_to_html(md, &o);
@@ -436,9 +438,9 @@ mod tests {
         assert_eq!(save(&root, "a", "new", "0", false), Err("conflict".into()));
         save(&root, "a", "new", &d.mtime, false).unwrap();
         assert_eq!(fs::read_to_string(root.join("a.md")).unwrap(), "new");
-        assert_eq!(create(&root, "team/standup.md").unwrap(), "team/standup");
-        assert!(create(&root, "team/standup").is_err(), "duplicate");
-        assert!(create(&root, "../evil").is_err() && create(&root, ".hidden").is_err() && create(&root, " ").is_err());
+        assert_eq!(create(&root, "team/standup.md", None).unwrap(), "team/standup");
+        assert!(create(&root, "team/standup", None).is_err(), "duplicate");
+        assert!(create(&root, "../evil", None).is_err() && create(&root, ".hidden", None).is_err() && create(&root, " ", None).is_err());
         assert_eq!(relocate(&root, "team/standup", false, "daily/standup").unwrap(), "daily/standup");
         assert!(root.join("daily/standup.md").exists() && !root.join("team/standup.md").exists());
         assert!(relocate(&root, "a", false, "daily/standup").is_err(), "no overwrite on rename");
@@ -543,5 +545,6 @@ mod tests {
         assert!(!h.contains("<script") && !h.contains("onclick") && !h.contains("evil"), "{h}");
         assert!(h.contains(r#"class="math-x""#) && h.contains("language-rust") && h.contains(r#"id="hi-there""#), "{h}");
         assert!(h.contains(r#"data-math-style="inline""#), "{h}");
+        assert_eq!(render("---\ntitle: x\n---\n\nHi").trim(), "<p>Hi</p>", "properties aren't rendered");
     }
 }
