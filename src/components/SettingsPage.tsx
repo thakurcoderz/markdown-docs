@@ -164,6 +164,12 @@ export function SettingsPage({ settings, onChange, onClose, location, onDocsFold
               <Row title={`Markdown Docs ${version}`} description="Updates come from the project’s GitHub releases and are verified with a signature before they’re installed.">
                 <Button variant="outline" onClick={onCheckUpdates}><RefreshCw /> Check now</Button>
               </Row>
+              {/* Web links open in the browser via the app's global link handler. */}
+              <p className="mt-4 flex gap-4 text-sm">
+                <a className="text-primary underline underline-offset-4" href="https://thakurcoderz.github.io/markdown-docs/">Website</a>
+                <a className="text-primary underline underline-offset-4" href={`https://github.com/thakurcoderz/markdown-docs/releases/tag/v${version}`}>Release notes</a>
+                <a className="text-primary underline underline-offset-4" href="https://github.com/thakurcoderz/markdown-docs/issues">Report an issue</a>
+              </p>
             </section>
           )}
         </div>
