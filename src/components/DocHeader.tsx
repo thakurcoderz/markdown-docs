@@ -1,9 +1,11 @@
-import { Check, Code, Columns2, Eye, FileDown, FolderOpen, Maximize2, MessageSquareText, MoreHorizontal, PanelLeft, PanelRight, Pencil, Save, Trash2 } from "lucide-react"
+import { Check, Code, Columns2, Eye, FileDown, FolderOpen, History, Maximize2, MessageSquareText, MoreHorizontal, PanelLeft, PanelRight, Pencil, Save, Search, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { IconButton } from "@/components/Sidebar"
 import { fileManager, mod, shift } from "@/lib/platform"
 import { cn } from "@/lib/utils"
+import { readingMinutes } from "@/lib/words"
 
 export type Mode = "preview" | "split" | "markdown"
 
@@ -21,6 +23,8 @@ type Props = {
   paused: boolean
   /** Narrow window: the mode switch shows icons only. */
   compact: boolean
+  /** Word count of the current text. */
+  words: number
   sidebarOpen: boolean
   panelOpen: boolean
   onMode: (m: Mode) => void
@@ -33,6 +37,8 @@ type Props = {
   onReveal: () => void
   onFocus: () => void
   onDelete: () => void
+  onFind: () => void
+  onHistory: () => void
 }
 
 /** Top bar of the doc area: panel toggles, folder path + doc name, save state, view switch and a ⋯ menu. */
@@ -51,6 +57,14 @@ export function DocHeader(p: Props) {
           <span className="ml-1 shrink-0 text-xs text-muted-foreground" aria-live="polite">
             {p.dirty ? (p.paused ? "" : "Saving…") : <span className="inline-flex items-center gap-1"><Check className="size-3" /> Saved</span>}
           </span>
+        )}
+        {p.doc && !p.compact && (
+          <Tooltip>
+            <TooltipTrigger render={<span className="shrink-0 text-xs text-muted-foreground tabular-nums" />}>
+              · {p.words.toLocaleString()} {p.words === 1 ? "word" : "words"}
+            </TooltipTrigger>
+            <TooltipContent>About {readingMinutes(p.words)} min read</TooltipContent>
+          </Tooltip>
         )}
       </h1>
       {p.doc && (
@@ -81,6 +95,8 @@ export function DocHeader(p: Props) {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52">
               <DropdownMenuItem onClick={p.onAddNote}><MessageSquareText /> Add note</DropdownMenuItem>
+              <DropdownMenuItem onClick={p.onFind}><Search /> Find… <DropdownMenuShortcut>{mod}F</DropdownMenuShortcut></DropdownMenuItem>
+              <DropdownMenuItem onClick={p.onHistory}><History /> Version history</DropdownMenuItem>
               <DropdownMenuItem onClick={p.onExportPdf}><FileDown /> Export PDF… <DropdownMenuShortcut>{mod}P</DropdownMenuShortcut></DropdownMenuItem>
               <DropdownMenuItem onClick={p.onFocus}><Maximize2 /> Focus mode <DropdownMenuShortcut>{mod}{shift}F</DropdownMenuShortcut></DropdownMenuItem>
               <DropdownMenuSeparator />

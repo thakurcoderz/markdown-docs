@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
+import type { EditorView } from "@codemirror/view"
 import { listen } from "@tauri-apps/api/event"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { ask } from "@tauri-apps/plugin-dialog"
@@ -11,6 +12,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CommentsPanel, type Compose } from "@/components/CommentsPanel"
 import { DocHeader, type Mode } from "@/components/DocHeader"
 import { Editor } from "@/components/Editor"
+import { FindBar } from "@/components/FindBar"
+import { HistoryPanel, VersionView, versionDate } from "@/components/History"
 import { NameDialog, type NameRequest } from "@/components/NameDialog"
 import { SearchDialog } from "@/components/SearchDialog"
 import { ResizeHandle } from "@/components/ResizeHandle"
@@ -25,6 +28,7 @@ import { mod } from "@/lib/platform"
 import { addRecent, moveRecent, recentDocs } from "@/lib/recent"
 import { checkForUpdates } from "@/lib/updates"
 import { cn } from "@/lib/utils"
+import { countWords } from "@/lib/words"
 
 const err = (e: unknown) => toast.error(String(e))
 const AUTOSAVE_MS = 1000
@@ -60,6 +64,11 @@ export default function App() {
   const [widths, setWidths] = useState({ sidebar: DEFAULTS.sidebarWidth, panel: DEFAULTS.panelWidth })
   // Set when an autosave fails or an overwrite is declined; ⌘S / the Save button retries and clears it.
   const [autosavePaused, setAutosavePaused] = useState(false)
+  // Find bar: open with or without the replace row; `tick` refocuses it when ⌘F is pressed again.
+  const [find, setFind] = useState<{ replace: boolean; tick: number } | null>(null)
+  const [editorView, setEditorView] = useState<EditorView | null>(null)
+  // An earlier version being looked at, shown in place of the doc.
+  const [viewing, setViewing] = useState<string | null>(null)
 
   const previewRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -129,7 +138,7 @@ export default function App() {
     const m = startMode ?? S.current.mode
     addRecent(id)
     setDoc(id); setDisk(d); setDraft(d.content); setMode(m)
-    setActive(null); setCompose(null); setFab(null); setAutosavePaused(false)
+    setActive(null); setCompose(null); setFab(null); setAutosavePaused(false); setViewing(null)
     S.current = { ...S.current, doc: id, disk: d, draft: d.content, mode: m, dirty: false }
     await loadComments(id)
     await showHtml(await api.render(d.content))
@@ -154,7 +163,7 @@ export default function App() {
   }
 
   const closeDoc = () => {
-    setDoc(null); setDisk(null); setDraft(""); setComments([]); setCompose(null); setActive(null); setHtml("")
+    setDoc(null); setDisk(null); setDraft(""); setComments([]); setCompose(null); setActive(null); setHtml(""); setViewing(null); setFind(null)
     S.current = { ...S.current, doc: null, disk: null, draft: "", dirty: false }
   }
 
@@ -195,6 +204,7 @@ export default function App() {
   }, [draft, disk, dirty, autosavePaused])
 
   const switchMode = async (m: Mode) => {
+    setViewing(null)
     if (m === S.current.mode || !S.current.doc) return true
     if (m === "preview" && !(await save())) return false
     setMode(m)
@@ -242,6 +252,37 @@ export default function App() {
     if (!S.current.doc || !(await switchMode("preview"))) return
     getSelection()?.removeAllRanges()
     api.print().catch(err)
+  }
+
+  /** Opens the find bar; replacing edits the Markdown, so in Preview the editor opens beside it first. */
+  const openFind = async (replace: boolean) => {
+    if (!S.current.doc) return
+    setViewing(null)
+    if (replace && S.current.mode === "preview" && !(await switchMode("split"))) return
+    setFind((f) => ({ replace: replace || !!f?.replace, tick: (f?.tick ?? 0) + 1 }))
+  }
+
+  const showReplace = async (show: boolean) => {
+    if (show && S.current.mode === "preview" && !(await switchMode("split"))) return
+    setFind((f) => f && { ...f, replace: show })
+  }
+
+  /** Puts back an earlier version after saving any edits; the replaced text stays in the history. */
+  const restoreVersion = async (version: string) => {
+    const id = S.current.doc
+    if (!id) return
+    const ok = await ask(`Replace the current text with the version from ${versionDate(version)}? The current text is kept in the history, so you can switch back.`,
+      { title: "Restore version", okLabel: "Restore", cancelLabel: "Cancel" })
+    if (!ok || !(await save()) || S.current.doc !== id) return
+    let d: Doc
+    try {
+      await api.restoreVersion(id, version)
+      d = await api.readDoc(id)
+    } catch (e) { return err(e) }
+    setDisk(d); setDraft(d.content); setViewing(null)
+    S.current = { ...S.current, disk: d, draft: d.content, dirty: false }
+    if (S.current.mode !== "markdown") await showHtml(await api.render(d.content))
+    toast.success("Version restored")
   }
 
   const newDoc = () =>
@@ -445,8 +486,8 @@ export default function App() {
 
   // ---------- Global wiring ----------
 
-  const A = useRef({ save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading, openLink, checkUpdates, toggleSidebar, togglePanel, setFocus })
-  A.current = { save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading, openLink, checkUpdates, toggleSidebar, togglePanel, setFocus }
+  const A = useRef({ save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading, openLink, checkUpdates, toggleSidebar, togglePanel, setFocus, openFind, openTab })
+  A.current = { save, switchMode, newDoc, exportPdf, confirmDiscard, syncFromDisk, placeFab, jumpToHeading, openLink, checkUpdates, toggleSidebar, togglePanel, setFocus, openFind, openTab }
 
   useEffect(() => {
     api.rootDir().then((d) => (rootDir.current = d), err)
@@ -499,6 +540,9 @@ export default function App() {
         else if (payload === "toggle-sidebar") a.toggleSidebar()
         else if (payload === "toggle-panel") a.togglePanel()
         else if (payload === "focus-mode") a.setFocus((f) => !f)
+        else if (payload === "find") a.openFind(false)
+        else if (payload === "replace") a.openFind(true)
+        else if (payload === "history" && S.current.doc) a.openTab("history")
       }),
       getCurrentWindow().onCloseRequested(async (e) => {
         if (!(await A.current.confirmDiscard())) e.preventDefault()
@@ -521,6 +565,8 @@ export default function App() {
 
   const closeSettings = useCallback(() => setSettingsOpen(false), [])
 
+  const deferredDraft = useDeferredValue(draft)
+  const words = useMemo(() => countWords(deferredDraft), [deferredDraft])
   const openCount = comments.filter((c) => c.parent_id == null && !c.resolved).length
 
   return (
@@ -543,26 +589,36 @@ export default function App() {
 
       <main className={cn("flex min-h-0 min-w-0 flex-1 flex-col", settingsOpen && "hidden")}>
         <DocHeader
-          doc={doc} mode={mode} dirty={dirty} paused={autosavePaused} compact={narrow}
+          doc={doc} mode={mode} dirty={dirty} paused={autosavePaused} compact={narrow} words={words}
           sidebarOpen={showSidebar} panelOpen={showPanel}
           onMode={switchMode} onSave={() => save()} onToggleSidebar={toggleSidebar} onTogglePanel={togglePanel}
           onAddNote={startNote} onExportPdf={exportPdf} onRename={() => doc && renameItem(doc, false)}
           onReveal={() => api.revealRoot().catch(err)} onFocus={() => setFocus(true)} onDelete={() => doc && deleteDoc(doc)}
+          onFind={() => openFind(false)} onHistory={() => openTab("history")}
         />
-        <div className="flex min-h-0 flex-1">
+        <div className="relative flex min-h-0 flex-1">
+          {doc && viewing && (
+            <VersionView doc={doc} version={viewing} current={draft} rootDir={rootDir.current} onRestore={restoreVersion} onClose={() => setViewing(null)} />
+          )}
           {doc && mode !== "preview" && (
-            <div className={cn("min-h-0 min-w-0 flex-1", mode === "split" && "border-r")}>
-              <Editor docKey={doc} value={draft} onChange={setDraft} />
+            <div className={cn("min-h-0 min-w-0 flex-1", mode === "split" && "border-r", viewing && "hidden")}>
+              <Editor docKey={doc} value={draft} onChange={setDraft} onView={setEditorView} onFind={openFind} />
             </div>
           )}
           <div
             ref={scrollRef}
             onScroll={() => (spy(), placeFab())}
-            className={cn("flex min-h-0 min-w-0 flex-1 flex-col overflow-auto", doc && mode === "markdown" && "hidden")}
+            className={cn("flex min-h-0 min-w-0 flex-1 flex-col overflow-auto", doc && (mode === "markdown" || viewing) && "hidden")}
           >
             <article ref={previewRef} className={cn("markdown select-text", !doc && "hidden")} />
             {!doc && <Welcome hasDocs={tree.length > 0} recent={recentInTree()} onNew={newDoc} onSearch={() => setSearchOpen(true)} onOpen={openDoc} />}
           </div>
+          {doc && find && !viewing && (
+            <FindBar
+              editor={editorView} preview={previewRef.current} version={editorView ? draft : renderTick}
+              replace={find.replace} onReplace={showReplace} focusTick={find.tick} scrollTo={scrollToRange} onClose={() => setFind(null)}
+            />
+          )}
         </div>
       </main>
 
@@ -587,6 +643,7 @@ export default function App() {
             <TabsTrigger value="comments">
               Comments {openCount > 0 && <Badge className="h-4 min-w-4 px-1 text-[10px]">{openCount}</Badge>}
             </TabsTrigger>
+            <TabsTrigger value="history">History</TabsTrigger>
           </TabsList>
           <ScrollArea className="min-h-0 flex-1">
             <TabsContent value="toc">
@@ -613,6 +670,13 @@ export default function App() {
                 />
               ) : (
                 <p className="p-4 text-sm text-muted-foreground">Open a doc to see its comments.</p>
+              )}
+            </TabsContent>
+            <TabsContent value="history">
+              {doc ? (
+                <HistoryPanel doc={doc} mtime={disk?.mtime} selected={viewing} onSelect={(v) => (setViewing(v), v && setFind(null))} />
+              ) : (
+                <p className="p-4 text-sm text-muted-foreground">Open a doc to see its history.</p>
               )}
             </TabsContent>
           </ScrollArea>

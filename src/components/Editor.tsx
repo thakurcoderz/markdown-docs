@@ -3,8 +3,9 @@ import { basicSetup } from "codemirror"
 import { markdown } from "@codemirror/lang-markdown"
 import { languages } from "@codemirror/language-data"
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language"
-import { EditorState } from "@codemirror/state"
-import { EditorView } from "@codemirror/view"
+import { search } from "@codemirror/search"
+import { EditorState, Prec } from "@codemirror/state"
+import { EditorView, keymap } from "@codemirror/view"
 import { tags as t } from "@lezer/highlight"
 import { getCurrentWebview } from "@tauri-apps/api/webview"
 import { toast } from "sonner"
@@ -40,7 +41,21 @@ const theme = EditorView.theme({
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": { backgroundColor: "color-mix(in oklab, var(--tok-link) 25%, transparent) !important" },
   ".cm-cursor": { borderLeftColor: "var(--foreground)" },
   ".cm-panels": { backgroundColor: "var(--muted)", color: "var(--foreground)" },
+  ".cm-panels-top": { borderBottom: "none" },
   ".cm-searchMatch": { backgroundColor: "rgb(250 204 21 / 0.35)" },
+  ".cm-searchMatch-selected": { backgroundColor: "rgb(249 115 22 / 0.55)" },
+})
+
+/**
+ * CodeMirror's search state drives match highlighting and find/replace, but its panel stays empty and hidden:
+ * the app's own find bar runs it (and only highlights while a panel is "open").
+ */
+const hiddenSearch = search({
+  createPanel: () => {
+    const dom = document.createElement("div")
+    dom.hidden = true
+    return { dom, top: true }
+  },
 })
 
 const imageFiles = (dt: DataTransfer | null) => [...(dt?.files ?? [])].filter((f) => f.type.startsWith("image/"))
@@ -80,17 +95,27 @@ async function insertImages(v: EditorView, added: Promise<Added[]>, pos: number,
 
 const settle = (p: Promise<string>): Promise<Saved> => p.then((Ok) => ({ Ok }), (e) => ({ Err: String(e) }))
 
-type Props = { docKey: string; value: string; onChange: (v: string) => void }
+type Props = {
+  docKey: string
+  value: string
+  onChange: (v: string) => void
+  /** The live view while mounted, then null; the find bar searches through it. */
+  onView?: (v: EditorView | null) => void
+  /** ⌘F / replace shortcut pressed in the editor (the menu usually catches these first). */
+  onFind?: (replace: boolean) => void
+}
 
 /**
  * CodeMirror 6 Markdown editor. Recreated per doc (fresh undo history); external `value` changes are applied in place.
  * Pasted or dropped images are saved into the doc's img/ folder and linked at the cursor or drop point.
  */
-export function Editor({ docKey, value, onChange }: Props) {
+export function Editor({ docKey, value, onChange, onView, onFind }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
+  const cb = useRef({ onView, onFind })
+  cb.current = { onView, onFind }
 
   useEffect(() => {
     const v = new EditorView({
@@ -98,7 +123,12 @@ export function Editor({ docKey, value, onChange }: Props) {
       state: EditorState.create({
         doc: value,
         extensions: [
+          Prec.highest(keymap.of([
+            { key: "Mod-f", run: () => (cb.current.onFind?.(false), true) },
+            { key: "Mod-h", mac: "Mod-Alt-f", run: () => (cb.current.onFind?.(true), true) },
+          ])),
           basicSetup,
+          hiddenSearch,
           markdown({ codeLanguages: languages }),
           syntaxHighlighting(highlight),
           EditorView.lineWrapping,
@@ -128,6 +158,7 @@ export function Editor({ docKey, value, onChange }: Props) {
       }),
     })
     view.current = v
+    cb.current.onView?.(v)
     v.focus()
     // Files dropped from outside arrive as native drag-drop events with paths, in physical pixels relative to the webview.
     const unlisten = getCurrentWebview().onDragDropEvent(({ payload: p }) => {
@@ -140,6 +171,7 @@ export function Editor({ docKey, value, onChange }: Props) {
       insertImages(v, api.importImages(docKey, p.paths).then((res) => res.map((saved, i) => ({ name: names[i], saved }))), pos)
     })
     return () => {
+      cb.current.onView?.(null)
       v.destroy()
       unlisten.then((f) => f())
     }

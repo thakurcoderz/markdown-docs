@@ -2,6 +2,7 @@
 
 mod comments;
 mod docs;
+mod history;
 mod relink;
 
 use rusqlite::Connection;
@@ -256,6 +257,23 @@ fn save_doc(s: State<AppState>, id: String, content: String, mtime: String, forc
     with_root(&s, |r| docs::save(&r.dir, &id, &content, &mtime, force))
 }
 
+/// Earlier versions of a doc, newest first.
+#[tauri::command]
+fn list_versions(s: State<AppState>, id: String) -> Result<Vec<history::Version>, String> {
+    with_root(&s, |r| Ok(history::list(&r.dir, &id)))
+}
+
+#[tauri::command]
+fn read_version(s: State<AppState>, id: String, version: String) -> Result<String, String> {
+    with_root(&s, |r| history::read(&r.dir, &id, &version))
+}
+
+/// Puts back an earlier version; the current text is kept in the history. Returns the new mtime.
+#[tauri::command]
+fn restore_version(s: State<AppState>, id: String, version: String) -> Result<String, String> {
+    with_root(&s, |r| docs::restore(&r.dir, &id, &version))
+}
+
 /// Raw-body command so image bytes skip JSON. The doc id and file name come URI-encoded in headers.
 #[tauri::command]
 fn save_image(s: State<AppState>, request: tauri::ipc::Request) -> Result<String, String> {
@@ -484,6 +502,7 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
                     &item("save", "Save", "CmdOrCtrl+S")?,
                     &sep()?,
                     &item("export-pdf", "Export PDF…", "CmdOrCtrl+P")?,
+                    &MenuItem::with_id(app, "history", "Version History", true, None::<&str>)?,
                     &sep()?,
                     &PredefinedMenuItem::close_window(app, None)?,
                 ],
@@ -500,6 +519,10 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
                     &copy,
                     &paste,
                     &select_all,
+                    &sep()?,
+                    &item("find", "Find…", "CmdOrCtrl+F")?,
+                    // ⌘H is Hide on macOS, so replace gets the TextEdit / Xcode shortcut there.
+                    &item("replace", "Find and Replace…", if cfg!(target_os = "macos") { "Cmd+Alt+F" } else { "Ctrl+H" })?,
                 ],
             )?,
             &Submenu::with_items(
@@ -564,7 +587,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             root_dir, create_doc, rename_doc, delete_doc, reveal_root, tree, read_doc, save_doc, search, render, list_comments, add_comment, edit_comment,
             delete_comment, resolve_comment, get_settings, set_settings, list_fonts, open_url, print, quit, docs_location,
-            set_docs_folder, save_image, import_images, paste_image, move_item, rename_folder, delete_folder
+            set_docs_folder, save_image, import_images, paste_image, move_item, rename_folder, delete_folder,
+            list_versions, read_version, restore_version
         ])
         .run(tauri::generate_context!())
         .expect("error while running app");
