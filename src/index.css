@@ -2,11 +2,18 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+/* Paper & ink type, bundled so the app works offline: Fraunces for doc headings, Newsreader for doc text,
+   IBM Plex Mono for code, the editor and small labels. The interface itself stays in Geist for legibility. */
+@import "@fontsource-variable/fraunces/soft.css";
+@import "@fontsource-variable/newsreader/opsz.css";
+@import "@fontsource-variable/newsreader/opsz-italic.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-    --font-heading: var(--font-sans);
+    --font-heading: var(--heading-font);
     --font-sans: var(--app-font);
     --font-mono: var(--code-font);
     --color-sidebar-ring: var(--sidebar-ring);
@@ -52,73 +59,82 @@
 :root {
     /* Overridden at runtime from Settings (lib/settings.ts). */
     --app-font: 'Geist Variable', sans-serif;
-    --code-font: ui-monospace, "SF Mono", Menlo, monospace;
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    --doc-font: 'Newsreader Variable', Georgia, serif;
+    --heading-font: 'Fraunces Variable', Georgia, serif;
+    --code-font: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+    /* Paper & ink, shared with the website: a cream sheet, blue-black ink, a fountain-pen blue, red pencil. */
+    --background: #fdfaf2;
+    --foreground: #1c2230;
+    --card: #fffdf7;
+    --card-foreground: #1c2230;
+    --popover: #fffdf7;
+    --popover-foreground: #1c2230;
+    --primary: #2448b5;
+    --primary-foreground: #fffdf7;
+    --secondary: #ede6d5;
+    --secondary-foreground: #1c2230;
+    --muted: #efe8d7;
+    --muted-foreground: #6b6e78;
+    --accent: #ede6d5;
+    --accent-foreground: #1c2230;
+    --destructive: #b8432c;
+    --border: #e2d9c6;
+    --input: #d8cdb6;
+    --ring: #2448b5;
+    --chart-1: #2448b5;
+    --chart-2: #b8432c;
+    --chart-3: #4f7a28;
+    --chart-4: #9a6a00;
+    --chart-5: #6b6e78;
+    --radius: 0.45rem;
+    --sidebar: #f4efe3;
+    --sidebar-foreground: #1c2230;
+    --sidebar-primary: #2448b5;
+    --sidebar-primary-foreground: #fffdf7;
+    --sidebar-accent: #e9e1cd;
+    --sidebar-accent-foreground: #1c2230;
+    --sidebar-border: #e2d9c6;
+    --sidebar-ring: #2448b5;
+    /* Comment highlights: highlighter yellow. */
+    --mark-open: rgb(255 214 10 / .38);
+    --mark-active: rgb(255 196 0 / .7);
 }
 
 .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    /* Night desk: the same sheet under a lamp. */
+    --background: #1f1d16;
+    --foreground: #ece4d2;
+    --card: #26241c;
+    --card-foreground: #ece4d2;
+    --popover: #26241c;
+    --popover-foreground: #ece4d2;
+    --primary: #8fb0ff;
+    --primary-foreground: #16150f;
+    --secondary: #2e2b22;
+    --secondary-foreground: #ece4d2;
+    --muted: #2b2820;
+    --muted-foreground: #a39a87;
+    --accent: #2e2b22;
+    --accent-foreground: #ece4d2;
+    --destructive: #ec8a6e;
+    --border: #38342a;
+    --input: #443f33;
+    --ring: #8fb0ff;
+    --chart-1: #8fb0ff;
+    --chart-2: #ec8a6e;
+    --chart-3: #a9c98a;
+    --chart-4: #e5c07b;
+    --chart-5: #a39a87;
+    --sidebar: #17160f;
+    --sidebar-foreground: #ece4d2;
+    --sidebar-primary: #8fb0ff;
+    --sidebar-primary-foreground: #16150f;
+    --sidebar-accent: #2b2820;
+    --sidebar-accent-foreground: #ece4d2;
+    --sidebar-border: #38342a;
+    --sidebar-ring: #8fb0ff;
+    --mark-open: rgb(214 170 20 / .3);
+    --mark-active: rgb(230 184 20 / .55);
 }
 
 @layer base {
@@ -132,28 +148,33 @@
     @apply font-sans;
     }
 }
-/* ---- Rendered markdown ---- */
-.markdown { @apply mx-auto w-full max-w-[860px] px-10 pt-7 pb-20 text-[15px] leading-relaxed; }
-.markdown h1, .markdown h2, .markdown h3, .markdown h4 { @apply mt-8 mb-3 scroll-mt-3 leading-tight font-semibold; }
-.markdown h1 { @apply text-3xl; }
-.markdown h2 { @apply border-b pb-1 text-2xl; }
-.markdown h3 { @apply text-xl; }
+/* ---- Rendered markdown: the doc is set like a printed page ---- */
+.markdown { @apply mx-auto w-full max-w-[820px] px-10 pt-8 pb-20; font-family: var(--doc-font); font-size: 18px; line-height: 1.7; font-optical-sizing: auto; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 { @apply mt-9 mb-3 scroll-mt-3 leading-tight; font-family: var(--heading-font); font-weight: 600; letter-spacing: -.012em; }
+.markdown h1 { font-size: 2.3em; letter-spacing: -.02em; }
+.markdown h2 { @apply border-b pb-1.5; font-size: 1.6em; }
+.markdown h3 { font-size: 1.28em; }
+.markdown h4 { font-size: 1.08em; }
 .markdown > :first-child { @apply mt-0; }
 .markdown p, .markdown ul, .markdown ol, .markdown blockquote, .markdown pre { @apply my-4; }
 .markdown ul { @apply list-disc pl-6; }
 .markdown ol { @apply list-decimal pl-6; }
 .markdown li { @apply my-1; }
+.markdown li::marker { color: var(--muted-foreground); }
 .markdown li:has(> input[type="checkbox"]) { @apply -ml-5 list-none; }
-.markdown a { @apply text-blue-600 hover:underline dark:text-blue-400; }
-.markdown code { @apply rounded bg-muted px-1.5 py-0.5 font-mono text-[0.88em]; }
-.markdown pre { @apply overflow-auto rounded-lg bg-muted px-4 py-3; }
-.markdown pre code { @apply bg-transparent p-0; }
-.markdown blockquote { @apply border-l-4 pl-4 text-muted-foreground; }
-.markdown hr { @apply my-8; }
-.markdown img { @apply max-w-full; }
-.markdown .table-wrap { @apply my-4 overflow-x-auto; }
+.markdown input[type="checkbox"] { accent-color: var(--foreground); }
+.markdown a { color: var(--primary); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.markdown a:hover { text-decoration-thickness: 2px; }
+.markdown code { @apply rounded bg-muted px-1.5 py-0.5 font-mono text-[0.8em]; }
+.markdown pre { @apply overflow-auto rounded-r-md bg-muted px-4 py-3 text-[15px] leading-relaxed; border-left: 3px solid var(--primary); }
+.markdown pre code { @apply bg-transparent p-0 text-[0.9em]; }
+.markdown blockquote { @apply pl-4 text-muted-foreground italic; border-left: 3px solid var(--border); }
+.markdown hr { @apply my-10; }
+.markdown img { @apply max-w-full rounded-sm; }
+.markdown .table-wrap { @apply my-5 overflow-x-auto; }
+.markdown table { font-size: .92em; }
 .markdown th, .markdown td { @apply border px-3 py-1.5 text-left; }
-.markdown th { @apply bg-muted font-semibold; }
+.markdown th { @apply bg-muted font-semibold; font-family: var(--app-font); font-size: .85em; }
 .markdown .mermaid { @apply my-4 flex justify-center overflow-x-auto; }
 .markdown .mermaid-error { @apply my-4 font-mono text-sm whitespace-pre-wrap text-destructive; }
 .markdown .katex-display { @apply overflow-x-auto overflow-y-hidden; }
@@ -165,10 +186,10 @@
 .comment-body ol { @apply list-decimal pl-5; }
 .comment-body code { @apply rounded bg-muted px-1 font-mono text-xs; }
 .comment-body pre { @apply overflow-auto rounded bg-muted p-2; }
-.comment-body a { @apply text-blue-600 hover:underline dark:text-blue-400; }
+.comment-body a { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
 
-::highlight(c-open) { background-color: rgb(250 204 21 / 0.3); }
-::highlight(c-active) { background-color: rgb(250 190 0 / 0.65); }
+::highlight(c-open) { background-color: var(--mark-open); }
+::highlight(c-active) { background-color: var(--mark-active); }
 
 @media print {
   html, body, #root, #root > div { height: auto !important; overflow: visible !important; display: block !important; background: white; color: black; }
@@ -180,12 +201,12 @@
 
 /* ---- Syntax palette shared by the editor and preview code blocks ---- */
 :root {
-  --tok-keyword: #a626a4; --tok-string: #50a14f; --tok-number: #b76b01; --tok-comment: #8a8f98;
-  --tok-function: #4078f2; --tok-type: #c18401; --tok-attr: #986801; --tok-heading: #1f2937; --tok-link: #2563eb;
+  --tok-keyword: #8b2f6b; --tok-string: #4f7a28; --tok-number: #b8432c; --tok-comment: #8a8f99;
+  --tok-function: #2448b5; --tok-type: #9a6a00; --tok-attr: #8a5a14; --tok-heading: #1c2230; --tok-link: #2448b5;
 }
 .dark {
-  --tok-keyword: #c678dd; --tok-string: #98c379; --tok-number: #d19a66; --tok-comment: #7f848e;
-  --tok-function: #61afef; --tok-type: #e5c07b; --tok-attr: #d19a66; --tok-heading: #f3f4f6; --tok-link: #60a5fa;
+  --tok-keyword: #d7a0e8; --tok-string: #a9c98a; --tok-number: #ec8a6e; --tok-comment: #857d6c;
+  --tok-function: #8fb0ff; --tok-type: #e5c07b; --tok-attr: #d9a86a; --tok-heading: #ece4d2; --tok-link: #8fb0ff;
 }
 .hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-meta .hljs-keyword { color: var(--tok-keyword); }
 .hljs-string, .hljs-regexp, .hljs-addition, .hljs-template-string { color: var(--tok-string); }

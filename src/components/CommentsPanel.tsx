@@ -78,12 +78,13 @@ function Composer({ initial = "", label, submit, cancel }: { initial?: string; l
 
 const Quote = ({ text, onClick }: { text: string | null; onClick?: () => void }) =>
   text == null ? (
-    <div className="mb-1.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">General note</div>
+    <div className="mb-1.5 text-[11px] font-mono font-medium tracking-[0.12em] text-muted-foreground uppercase">General note</div>
   ) : (
     <button
       onClick={onClick && ((e) => (e.stopPropagation(), onClick()))}
       title="Show in doc"
-      className="mb-2 line-clamp-3 w-full border-l-[3px] border-amber-400 pl-2 text-left text-[13px] text-muted-foreground hover:text-foreground"
+      className="mb-2 line-clamp-3 w-full border-l-[3px] border-amber-400 pl-2 text-left text-[14px] text-muted-foreground italic hover:text-foreground"
+      style={{ fontFamily: "var(--doc-font)" }}
     >
       {text}
     </button>

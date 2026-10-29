@@ -163,7 +163,7 @@ export function Sidebar(p: Props) {
   return (
     <aside style={p.style} className="flex min-h-0 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
       <div className="flex h-12 shrink-0 items-center gap-1 pr-2 pl-4">
-        <span className="flex-1 text-sm font-semibold">Docs</span>
+        <span className="flex-1 font-heading text-[17px] font-semibold">Docs</span>
         <IconButton label={`New doc (${mod}N)`} onClick={p.onNew}><SquarePen /></IconButton>
       </div>
       <div className="px-2 pb-2">

@@ -8,7 +8,7 @@ use rusqlite::Connection;
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{AboutMetadataBuilder, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 
 struct Root {
@@ -426,6 +426,8 @@ fn run_edit_command(app: &AppHandle, id: &str) -> bool {
     true
 }
 
+const WEBSITE: &str = "https://thakurcoderz.github.io/markdown-docs/";
+
 fn menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let item = |id: &str, text: &str, accel: &str| MenuItem::with_id(app, id, text, true, Some(accel));
     let sep = || PredefinedMenuItem::separator(app);
@@ -445,7 +447,21 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
                 "Markdown Docs",
                 true,
                 &[
-                    &PredefinedMenuItem::about(app, None, None)?,
+                    // Without metadata, the About item does nothing on Linux (muda only shows a dialog when given some).
+                    &PredefinedMenuItem::about(
+                        app,
+                        None,
+                        Some(
+                            AboutMetadataBuilder::new()
+                                .name(Some(app.package_info().name.clone()))
+                                .version(Some(app.package_info().version.to_string()))
+                                .comments(Some("Read and edit Markdown docs, with comments anchored to the text."))
+                                .website(Some(WEBSITE))
+                                .website_label(Some("Website"))
+                                .build(),
+                        ),
+                    )?,
+                    &MenuItem::with_id(app, "website", "Visit Website", true, None::<&str>)?,
                     &MenuItem::with_id(app, "check-updates", "Check for Updates…", true, None::<&str>)?,
                     &sep()?,
                     &item("settings", "Settings…", "CmdOrCtrl+,")?,
@@ -535,6 +551,10 @@ fn main() {
             app.on_menu_event(|app, e| {
                 #[cfg(target_os = "linux")]
                 if run_edit_command(app, e.id().0.as_str()) {
+                    return;
+                }
+                if e.id().0 == "website" {
+                    let _ = open_external(WEBSITE);
                     return;
                 }
                 let _ = app.emit("menu", e.id().0.as_str());
