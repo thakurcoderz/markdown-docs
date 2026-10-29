@@ -15,6 +15,9 @@ export type Comment = {
   created_at: string
 }
 
+/** An earlier version of a doc; `id` is when that text was saved, in Unix milliseconds. */
+export type Version = { id: string; size: number }
+
 /** Where docs are stored; `unavailable` is the chosen folder when it couldn't be opened at launch. */
 export type Location = { dir: string; isDefault: boolean; unavailable: string | null }
 
@@ -44,6 +47,11 @@ export const api = {
   importImages: (doc: string, paths: string[]) => invoke<Saved[]>("import_images", { doc, paths }),
   /** Saves the image on the system clipboard (Linux), or returns null when there isn't one. */
   pasteImage: (doc: string, name: string) => invoke<string | null>("paste_image", { doc, name }),
+  /** Earlier versions of a doc, newest first. */
+  listVersions: (id: string) => invoke<Version[]>("list_versions", { id }),
+  readVersion: (id: string, version: string) => invoke<string>("read_version", { id, version }),
+  /** Puts back an earlier version (the current text is kept in the history). Returns the new mtime. */
+  restoreVersion: (id: string, version: string) => invoke<string>("restore_version", { id, version }),
   search: (query: string) => invoke<Hit[]>("search", { query }),
   render: (md: string) => invoke<string>("render", { md }),
   comments: (doc: string) => invoke<Comment[]>("list_comments", { doc }),

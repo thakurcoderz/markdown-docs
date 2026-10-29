@@ -105,6 +105,18 @@ export function findText(root: HTMLElement, q: string) {
   return i < 0 ? null : rangeAt(ix, i, i + q.length)
 }
 
+/** Every occurrence of `q` in the preview text, as Ranges in document order. */
+export function findAll(root: HTMLElement, q: string, caseSensitive: boolean) {
+  if (!q) return []
+  const ix = textIndex(root)
+  const hay = caseSensitive ? ix.text : ix.text.toLowerCase()
+  const needle = caseSensitive ? q : q.toLowerCase()
+  const out: Range[] = []
+  for (let i = hay.indexOf(needle); i >= 0 && out.length < 5000; i = hay.indexOf(needle, i + needle.length))
+    out.push(rangeAt(ix, i, i + needle.length))
+  return out
+}
+
 /** Selection → { quote, start } in the same offset space used for anchoring. */
 export function selectionAnchor(root: HTMLElement, r: Range) {
   const before = document.createRange()

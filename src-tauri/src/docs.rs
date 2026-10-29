@@ -173,9 +173,11 @@ fn new_folder_path(root: &Path, id: &str) -> Result<PathBuf, String> {
     Ok(p)
 }
 
-/// Moves the doc to the Trash so a mistaken delete is recoverable.
+/// Moves the doc to the Trash so a mistaken delete is recoverable. Its version history is dropped.
 pub fn delete(root: &Path, id: &str) -> Result<(), String> {
-    trash::delete(doc_path(root, id)?).map_err(|e| e.to_string())
+    trash::delete(doc_path(root, id)?).map_err(|e| e.to_string())?;
+    crate::history::delete(root, &format!("{id}.md"));
+    Ok(())
 }
 
 /// Moves a folder and everything in it to the Trash.
@@ -184,7 +186,9 @@ pub fn delete_folder(root: &Path, id: &str) -> Result<(), String> {
     if p == root {
         return Err("Can't delete the docs folder itself".into());
     }
-    trash::delete(p).map_err(|e| e.to_string())
+    trash::delete(p).map_err(|e| e.to_string())?;
+    crate::history::delete(root, id);
+    Ok(())
 }
 
 /// Doc ids always use '/', matching `tree`, even where the OS separator is '\'.
@@ -202,6 +206,11 @@ fn mtime(p: &Path) -> Result<String, String> {
     Ok(t.duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos().to_string())
 }
 
+fn mtime_ms(p: &Path) -> u64 {
+    let t = fs::metadata(p).and_then(|m| m.modified()).ok();
+    t.and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_millis() as u64)
+}
+
 pub fn read(root: &Path, id: &str) -> Result<Doc, String> {
     let p = doc_path(root, id)?;
     let content = fs::read_to_string(&p).map_err(|e| e.to_string())?;
@@ -209,12 +218,30 @@ pub fn read(root: &Path, id: &str) -> Result<Doc, String> {
 }
 
 /// Returns the new mtime, or Err("conflict") when the file changed since `expected` and `force` is false.
+/// The text being replaced goes into the version history first (see `history::snapshot`).
 pub fn save(root: &Path, id: &str, content: &str, expected: &str, force: bool) -> Result<String, String> {
     let p = doc_path(root, id)?;
     if !force && mtime(&p)? != expected {
         return Err("conflict".into());
     }
+    keep_version(root, id, &p, false);
     write_atomic(&p, content)?;
+    mtime(&p)
+}
+
+/// Snapshots the doc's current text. Best effort: a history problem never stops a save.
+fn keep_version(root: &Path, id: &str, p: &Path, force: bool) {
+    if let Ok(old) = fs::read_to_string(p) {
+        let _ = crate::history::snapshot(root, id, &old, mtime_ms(p), force);
+    }
+}
+
+/// Puts back an earlier version of the doc, keeping the current text in the history first. Returns the new mtime.
+pub fn restore(root: &Path, id: &str, version: &str) -> Result<String, String> {
+    let p = doc_path(root, id)?;
+    let text = crate::history::read(root, id, version)?;
+    keep_version(root, id, &p, true);
+    write_atomic(&p, &text)?;
     mtime(&p)
 }
 
@@ -300,6 +327,7 @@ pub fn relocate(root: &Path, from: &str, folder: bool, to: &str) -> Result<Strin
             _ => p.to_string(),
         }
     };
+    let _ = crate::history::relocate(root, &old_file, &new_file);
     let mut failed = vec![];
     for id in docs {
         let (was, now) = (format!("{id}.md"), map(&format!("{id}.md")));
@@ -486,6 +514,26 @@ mod tests {
         assert!(move_item(&root, "archive", true, "archive/crew").is_err(), "into itself");
         assert!(move_item(&root, "archive", true, "archive").is_err(), "into itself");
         assert!(move_item(&root, "notes", false, "../").is_err() && move_item(&root, "", true, "archive").is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn keeps_versions_on_save_and_restores() {
+        let dir = std::env::temp_dir().join(format!("mdver-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let root = fs::canonicalize(&dir).unwrap();
+        fs::write(root.join("a.md"), "first").unwrap();
+        let m = save(&root, "a", "second", &read(&root, "a").unwrap().mtime, false).unwrap();
+        save(&root, "a", "third", &m, false).unwrap(); // within five minutes: no new snapshot
+        let v = crate::history::list(&root, "a");
+        assert_eq!(v.len(), 1);
+        assert_eq!(crate::history::read(&root, "a", &v[0].id).unwrap(), "first");
+        restore(&root, "a", &v[0].id).unwrap();
+        assert_eq!(fs::read_to_string(root.join("a.md")).unwrap(), "first");
+        assert_eq!(crate::history::list(&root, "a").len(), 2, "the replaced text is kept");
+        relocate(&root, "a", false, "b").unwrap();
+        assert_eq!(crate::history::list(&root, "b").len(), 2, "history follows a rename");
         fs::remove_dir_all(dir).unwrap();
     }
 

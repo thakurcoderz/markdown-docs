@@ -196,7 +196,7 @@
   aside, header, [data-sonner-toaster], textarea, button, .cm-editor { display: none !important; }
   main, main div:has(.markdown) { display: block !important; overflow: visible !important; height: auto !important; }
   .markdown { max-width: none; padding: 0; }
-  ::highlight(c-open), ::highlight(c-active) { background-color: transparent; }
+  ::highlight(c-open), ::highlight(c-active), ::highlight(find), ::highlight(find-current) { background-color: transparent; }
 }
 
 /* ---- Syntax palette shared by the editor and preview code blocks ---- */
@@ -216,3 +216,5 @@
 .hljs-type, .hljs-title.class_, .hljs-name, .hljs-selector-class { color: var(--tok-type); }
 .hljs-attr, .hljs-attribute, .hljs-variable, .hljs-property, .hljs-params { color: var(--tok-attr); }
 ::highlight(search) { background-color: rgb(59 130 246 / 0.3); }
+::highlight(find) { background-color: rgb(250 204 21 / 0.4); }
+::highlight(find-current) { background-color: rgb(249 115 22 / 0.6); }
