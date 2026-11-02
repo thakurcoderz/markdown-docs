@@ -117,6 +117,44 @@ export function findAll(root: HTMLElement, q: string, caseSensitive: boolean) {
   return out
 }
 
+/** The innermost rendered block that source line `line` became, or the nearest one before it (e.g. in a diagram). */
+function blockAt(root: HTMLElement, line: number) {
+  let inside: HTMLElement | null = null, before: HTMLElement | null = null
+  for (const el of root.querySelectorAll<HTMLElement>("[data-sourcepos]")) {
+    // Emphasis, links and inline code carry positions too, but only hold part of a line.
+    if (el.matches("strong, em, del, a, code, span, img, sup")) continue
+    const m = /^(\d+):\d+-(\d+):/.exec(el.dataset.sourcepos ?? "")
+    if (!m || +m[1] > line) continue
+    before = el
+    if (+m[2] >= line) inside = el
+  }
+  return inside ?? before
+}
+
+/** Occurrences of `q` in source lines, compared roughly as the reader sees them. */
+function countInLines(lines: string[], q: string) {
+  const needle = q.toLowerCase()
+  let n = 0
+  for (const l of lines) {
+    const text = l.replace(/\]\([^)]*\)/g, "").replace(/\*|`|~~|\[/g, "").toLowerCase()
+    for (let i = text.indexOf(needle); i >= 0; i = text.indexOf(needle, i + needle.length)) n++
+  }
+  return n
+}
+
+/**
+ * Finds a search match in the preview: the block its source line became, then the right occurrence in that block.
+ * `range` is null when the text isn't in the block as written (say, a link target); `block` can still be scrolled to.
+ */
+export function locateMatch(root: HTMLElement, source: string, q: string, line: number, nth: number) {
+  const block = blockAt(root, line)
+  if (!block) return { range: findText(root, q), block: null }
+  const start = Number(/^(\d+):/.exec(block.dataset.sourcepos ?? "")?.[1] ?? line)
+  const earlier = countInLines(source.split("\n").slice(start - 1, line - 1), q)
+  const inBlock = findAll(block, q, false)
+  return { range: inBlock[Math.min(earlier + nth, inBlock.length - 1)] ?? null, block }
+}
+
 /** Selection → { quote, start } in the same offset space used for anchoring. */
 export function selectionAnchor(root: HTMLElement, r: Range) {
   const before = document.createRange()

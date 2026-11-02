@@ -1,7 +1,9 @@
 import { invoke } from "@tauri-apps/api/core"
 
 export type TreeNode = { name: string; id: string; children: TreeNode[] | null }
-export type Hit = { id: string; lines: string[] }
+/** Where a search matched: the text around it, its 1-based source line and which occurrence on that line. */
+export type SearchMatch = { line: number; nth: number; before: string; text: string; after: string; properties: boolean }
+export type Hit = { id: string; matches: SearchMatch[]; total: number }
 export type Doc = { content: string; mtime: string }
 export type Saved = { Ok: string } | { Err: string }
 export type Comment = {
