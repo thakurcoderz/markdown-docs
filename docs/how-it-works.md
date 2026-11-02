@@ -114,6 +114,17 @@ A link like `[setup](../guides/setup.md#install)` opens that doc at that heading
 
 **Code:** `src/lib/links.ts`
 
+### Viewing images up close
+
+Click an image or Mermaid diagram in the preview to open it full-window.
+
+- **Fit and zoom:** it opens fitted to the window. Click it to see it at actual size and click again to fit, or use the zoom buttons, + and −, 0 to fit, or Ctrl/⌘ with the scroll wheel, which zooms around the pointer.
+- **Moving around:** drag to pan a zoomed image. ← and → step through every image and diagram in the doc. Esc or a click outside closes it.
+- **Diagrams** are vector, so they grow to fill the window. The app copies the rendered diagram, sizes it from its viewBox and shows it as an SVG image on the app's background, so its text stays readable.
+- **Images inside links** follow the link instead.
+
+**Code:** `src/components/ImageViewer.tsx`, `viewerImages` in `preview.ts`
+
 ### Pasting and dropping images
 
 Paste a screenshot or drag image files into the editor. They're saved to an `img/` folder beside the doc and linked at the cursor. File names are cleaned up, and an existing file is never overwritten: a second `shot.png` becomes `shot-2.png`.
@@ -347,6 +358,7 @@ src/                        Frontend
 │   ├── DocHeader.tsx       Top bar, view switch, ⋯ menu, word count
 │   ├── Editor.tsx          CodeMirror, image paste and drop
 │   ├── FindBar.tsx         Find and replace
+│   ├── ImageViewer.tsx     Full-window image and diagram viewer
 │   ├── SearchDialog.tsx    Ctrl/⌘K search
 │   ├── History.tsx         Version list, changes view
 │   ├── CommentsPanel.tsx   Comment threads

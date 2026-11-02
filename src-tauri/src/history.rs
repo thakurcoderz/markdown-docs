@@ -49,10 +49,8 @@ pub fn snapshot(root: &Path, id: &str, text: &str, saved_ms: u64, force: bool) -
             return Ok(());
         }
     }
-    let p = d.join(format!("{saved_ms}.md"));
-    if p.exists() {
-        return Ok(());
-    }
+    // Two snapshots in the same millisecond (say, a quick save then a restore) both stay: the later one moves along.
+    let p = (saved_ms..).map(|t| d.join(format!("{t}.md"))).find(|p| !p.exists()).unwrap();
     fs::create_dir_all(&d).map_err(|e| e.to_string())?;
     fs::write(&p, text).map_err(|e| e.to_string())?;
     for t in prunable(&stamps(&d), now_ms()) {
@@ -148,6 +146,9 @@ mod tests {
         snapshot(&root, "team/a", "two", t - 60_000, false).unwrap();
         snapshot(&root, "team/a", "three", t, false).unwrap(); // under five minutes after the last: skipped
         snapshot(&root, "team/a", "two", t, true).unwrap(); // same text as the newest: skipped even when forced
+        snapshot(&root, "same/ms", "x", t, true).unwrap();
+        snapshot(&root, "same/ms", "y", t, true).unwrap();
+        assert_eq!(list(&root, "same/ms").len(), 2, "same millisecond, different text: both kept");
         let v = list(&root, "team/a");
         assert_eq!(v.iter().map(|v| v.id.as_str()).collect::<Vec<_>>(), [(t - 60_000).to_string(), (t - 10 * 60_000).to_string()]);
         assert_eq!(read(&root, "team/a", &v[1].id).unwrap(), "one");

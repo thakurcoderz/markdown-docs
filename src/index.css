@@ -172,7 +172,9 @@
 .markdown pre code { @apply bg-transparent p-0 text-[0.9em]; }
 .markdown blockquote { @apply pl-4 text-muted-foreground italic; border-left: 3px solid var(--border); }
 .markdown hr { @apply my-10; }
-.markdown img { @apply max-w-full rounded-sm; }
+.markdown img { @apply max-w-full rounded-sm; cursor: zoom-in; }
+.markdown .mermaid { cursor: zoom-in; }
+.markdown a img { cursor: pointer; }
 .markdown .table-wrap { @apply my-5 overflow-x-auto; }
 .markdown table { font-size: .92em; }
 .markdown th, .markdown td { @apply border px-3 py-1.5 text-left; }

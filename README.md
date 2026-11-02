@@ -39,6 +39,7 @@ xattr -dr com.apple.quarantine "/Applications/Markdown Docs.app"
 - **Search** — ⌘K opens a palette: it starts with your recent searches, and searches doc names and text once you pause typing. Results show the matching lines with the match highlighted, and clicking one takes you to that exact spot.
 - **Rich preview** — GitHub-flavored Markdown (tables, task lists, strikethrough, autolinks, footnotes), syntax-highlighted code blocks, KaTeX math (`$inline$`, `$$block$$`), and Mermaid diagrams. Raw HTML is allowed but sanitized.
 - **Links and images between docs** — `[setup](../guides/setup.md#install)` opens that doc at that heading; `![](img/diagram.png)` loads images relative to the doc.
+- **View images up close** — click an image or diagram in the preview to open it full-window: fit or zoom, drag to pan, and ←/→ to step through the doc's images.
 - **Paste or drop images** — paste a screenshot or drag image files into the editor; they're saved to an `img/` folder next to the doc and linked at the cursor (`![shot](img/shot.png)`). Existing files are never overwritten.
 - **Editor** — CodeMirror with Markdown highlighting, line numbers, and find/replace (⌘F). Switch between **Preview**, **Split** (editor + live preview), and **Markdown**.
 - **Autosave** — changes are saved a second after you stop typing (⌘S still works). Saves are atomic, and you're asked before overwriting a file that changed on disk since you opened it; if you decline or a save fails, autosave pauses until you save manually.

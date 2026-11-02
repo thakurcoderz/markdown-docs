@@ -13,6 +13,7 @@ import { CommentsPanel, type Compose } from "@/components/CommentsPanel"
 import { DocHeader, type Mode } from "@/components/DocHeader"
 import { Editor, revealInEditor } from "@/components/Editor"
 import { FindBar } from "@/components/FindBar"
+import { ImageViewer, type ViewerImage } from "@/components/ImageViewer"
 import { HistoryPanel, VersionView, versionDate } from "@/components/History"
 import { NameDialog, type NameRequest } from "@/components/NameDialog"
 import { SearchDialog } from "@/components/SearchDialog"
@@ -22,7 +23,7 @@ import { Sidebar } from "@/components/Sidebar"
 import { Welcome } from "@/components/Welcome"
 import { api, type Comment, type Doc, type Location, type SearchMatch, type TreeNode } from "@/lib/api"
 import { docLink } from "@/lib/links"
-import { anchor, enhance, findAll, findText, headingEls, locateMatch, readHeadings, selectionAnchor, type Heading } from "@/lib/preview"
+import { anchor, enhance, findAll, findText, headingEls, locateMatch, readHeadings, selectionAnchor, viewerImages, type Heading } from "@/lib/preview"
 import { applySettings, DEFAULTS, loadSettings, saveSettings, type Settings } from "@/lib/settings"
 import { mod } from "@/lib/platform"
 import { addRecent, moveRecent, recentDocs } from "@/lib/recent"
@@ -71,6 +72,8 @@ export default function App() {
   const [editorView, setEditorView] = useState<EditorView | null>(null)
   // An earlier version being looked at, shown in place of the doc.
   const [viewing, setViewing] = useState<string | null>(null)
+  // The preview's images, open in the full-window viewer.
+  const [viewer, setViewer] = useState<{ images: ViewerImage[]; index: number } | null>(null)
   // A search match to show in the editor once it's mounted on that doc.
   const [editorJump, setEditorJump] = useState<{ id: string; q: string; match: SearchMatch } | null>(null)
 
@@ -570,6 +573,14 @@ export default function App() {
     const onSel = () => A.current.placeFab()
     // Links never navigate the webview: anchors scroll, .md links open the doc, web links open in the browser.
     const onClick = (e: MouseEvent) => {
+      // Images and diagrams in the preview open in the viewer, unless they're links.
+      const pic = (e.target as Element).closest?.("img, .mermaid")
+      const preview = previewRef.current
+      if (pic && preview?.contains(pic) && !pic.closest("a[href]")) {
+        const { els, images } = viewerImages(preview)
+        const index = els.findIndex((el) => el === pic || pic.contains(el))
+        if (index >= 0) return setViewer({ images, index })
+      }
       const a = (e.target as Element).closest?.("a[href]") as HTMLAnchorElement | null
       if (!a) return
       e.preventDefault()
@@ -759,6 +770,9 @@ export default function App() {
         >
           <MessageSquarePlus /> Comment
         </Button>
+      )}
+      {viewer && (
+        <ImageViewer images={viewer.images} index={viewer.index} onIndex={(index) => setViewer((v) => v && { ...v, index })} onClose={() => setViewer(null)} />
       )}
       <NameDialog req={nameReq} onClose={() => setNameReq(null)} />
       <SearchDialog open={searchOpen} onOpenChange={setSearchOpen} onPick={openSearchResult} />
