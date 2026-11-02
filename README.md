@@ -6,6 +6,8 @@ A local app for macOS and Linux for reading and editing Markdown docs, with comm
 
 **Website:** https://thakurcoderz.github.io/markdown-docs/
 
+**How it works:** [a guide to every feature and what it's built with](docs/how-it-works.md)
+
 Built with [Tauri v2](https://tauri.app) (Rust backend, native WKWebView on macOS / WebKitGTK on Linux) and React + [shadcn/ui](https://ui.shadcn.com).
 
 ## Download
@@ -34,7 +36,7 @@ xattr -dr com.apple.quarantine "/Applications/Markdown Docs.app"
 - **Layout that gets out of the way** — hide the sidebar (Ctrl/⌘+\\) or the right panel (Ctrl/⌘+Shift+\\), drag their edges to resize, or use Focus Mode (Ctrl/⌘+Shift+F) to see only the doc. In small windows the right panel opens over the doc.
 - **Folders** — the ⋯ menu on a folder lets you add a doc, rename the folder or move it to the Trash. Renaming a doc or folder keeps every link to it working.
 - **Plain files** — every doc is a normal `.md` file, so you can still open, edit, back up or version it with any other tool. Changes made outside the app show up live.
-- **Search** — ⌘K opens a palette: type to search doc names and contents, or pick from all docs. Opening a result highlights the first match.
+- **Search** — ⌘K opens a palette: it starts with your recent searches, and searches doc names and text once you pause typing. Results show the matching lines with the match highlighted, and clicking one takes you to that exact spot.
 - **Rich preview** — GitHub-flavored Markdown (tables, task lists, strikethrough, autolinks, footnotes), syntax-highlighted code blocks, KaTeX math (`$inline$`, `$$block$$`), and Mermaid diagrams. Raw HTML is allowed but sanitized.
 - **Links and images between docs** — `[setup](../guides/setup.md#install)` opens that doc at that heading; `![](img/diagram.png)` loads images relative to the doc.
 - **Paste or drop images** — paste a screenshot or drag image files into the editor; they're saved to an `img/` folder next to the doc and linked at the cursor (`![shot](img/shot.png)`). Existing files are never overwritten.

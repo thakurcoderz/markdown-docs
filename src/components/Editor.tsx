@@ -71,6 +71,21 @@ function fileName(f: File) {
   return pastedName({ "image/jpeg": "jpg", "image/svg+xml": "svg" }[f.type] ?? f.type.slice(6))
 }
 
+/** Selects occurrence `nth` of `q` on 1-based `line` (or goes to the line if it's only there with markup in between) and centers it. */
+export function revealInEditor(v: EditorView, line: number, q: string, nth: number) {
+  const l = v.state.doc.line(Math.min(Math.max(line, 1), v.state.doc.lines))
+  const hay = l.text.toLowerCase(), needle = q.toLowerCase()
+  let at = hay.indexOf(needle)
+  for (let i = 0; i < nth && at >= 0; i++) {
+    const next = hay.indexOf(needle, at + needle.length)
+    if (next < 0) break
+    at = next
+  }
+  const anchor = at >= 0 ? l.from + at : l.from
+  v.dispatch({ selection: { anchor, head: at >= 0 ? anchor + needle.length : anchor }, effects: EditorView.scrollIntoView(anchor, { y: "center" }) })
+  v.focus()
+}
+
 type Added = { name: string; saved: Saved | null }
 
 /** Inserts `![](…)` links for the images that saved, at `pos` (replacing up to `to`); failures become toasts. */

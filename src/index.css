@@ -217,6 +217,6 @@
 .hljs-title, .hljs-title.function_, .hljs-section { color: var(--tok-function); }
 .hljs-type, .hljs-title.class_, .hljs-name, .hljs-selector-class { color: var(--tok-type); }
 .hljs-attr, .hljs-attribute, .hljs-variable, .hljs-property, .hljs-params { color: var(--tok-attr); }
-::highlight(search) { background-color: rgb(59 130 246 / 0.3); }
+::highlight(search) { background-color: rgb(59 130 246 / 0.4); }
 ::highlight(find) { background-color: rgb(250 204 21 / 0.4); }
 ::highlight(find-current) { background-color: rgb(249 115 22 / 0.6); }

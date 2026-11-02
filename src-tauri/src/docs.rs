@@ -48,20 +48,128 @@ fn walk(dir: &Path, prefix: &str) -> Vec<Node> {
     out
 }
 
+/// One place a query matched: the text around it, and where it is so the app can go there.
+#[derive(Serialize)]
+pub struct Match {
+    /// 1-based line in the file.
+    line: usize,
+    /// Which occurrence on that line (0 = first).
+    nth: usize,
+    before: String,
+    text: String,
+    after: String,
+    /// In the YAML properties, which Preview shows as a card rather than as doc text.
+    properties: bool,
+}
+
 #[derive(Serialize)]
 pub struct Hit {
     id: String,
-    /// First matching lines (trimmed), for the result snippet.
-    lines: Vec<String>,
+    /// The first few matches.
+    matches: Vec<Match>,
+    /// Matches in the whole doc.
+    total: usize,
+}
+
+const SHOWN_MATCHES: usize = 5;
+
+/// A line as a reader sees it: without emphasis and code markers, block prefixes or link targets.
+fn plain_line(line: &str) -> String {
+    let line = line.trim();
+    let line = line.trim_start_matches(['#', '>']).trim_start();
+    let line = ["- [ ] ", "- [x] ", "- [X] ", "* [ ] ", "* [x] ", "* [X] ", "- ", "+ ", "* "].iter().find_map(|p| line.strip_prefix(p)).unwrap_or(line);
+    let chars: Vec<char> = line.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '*' | '`' => i += 1,
+            '~' if chars.get(i + 1) == Some(&'~') => i += 2,
+            '!' if chars.get(i + 1) == Some(&'[') => i += 1,
+            '[' => {
+                // [text](target) keeps only the text.
+                let close = chars[i..].iter().position(|&c| c == ']').map(|n| i + n);
+                let end = close.filter(|&c| chars.get(c + 1) == Some(&'(')).and_then(|c| chars[c..].iter().position(|&c| c == ')').map(|n| (c, c + n)));
+                match end {
+                    Some((c, e)) => {
+                        out += &plain_line(&chars[i + 1..c].iter().collect::<String>());
+                        i = e + 1;
+                    }
+                    None => {
+                        out.push('[');
+                        i += 1;
+                    }
+                }
+            }
+            c => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
+/// Case folding that keeps one char per char, so match positions carry over to the original text.
+fn folded(s: &str) -> Vec<char> {
+    s.chars().map(|c| c.to_lowercase().next().unwrap_or(c)).collect()
+}
+
+/// Every non-overlapping occurrence of `q` (folded) in `text`, with the text around it.
+fn matches_in(text: &str, q: &[char], line: usize, prefix: &str, properties: bool) -> Vec<Match> {
+    let chars: Vec<char> = text.chars().collect();
+    let hay: Vec<char> = folded(text);
+    let mut out = vec![];
+    let mut i = 0;
+    while i + q.len() <= hay.len() {
+        if hay[i..i + q.len()] != *q {
+            i += 1;
+            continue;
+        }
+        let end = i + q.len();
+        // Little context before the match, so it stays visible when the snippet is cut to one row.
+        let from = i.saturating_sub(40);
+        let to = (end + 120).min(chars.len());
+        let before = format!("{}{prefix}{}", if from > 0 { "…" } else { "" }, chars[from..i].iter().collect::<String>());
+        let after = format!("{}{}", chars[end..to].iter().collect::<String>(), if to < chars.len() { "…" } else { "" });
+        out.push(Match { line, nth: out.len(), before: before.trim_start().into(), text: chars[i..end].iter().collect(), after, properties });
+        i = end;
+    }
+    out
+}
+
+/// A doc's matches. Text is compared as the reader sees it, then as written (for link targets and the like).
+/// Property names aren't searched, or "status" would match every doc; properties only count when the body has no match.
+fn doc_matches(text: &str, q: &[char]) -> Vec<Match> {
+    let head = crate::meta::front_matter_len(text).unwrap_or(0);
+    let head_lines = text[..head].lines().count();
+    let (mut body, mut props) = (vec![], vec![]);
+    for (n, l) in text.lines().enumerate() {
+        if n < head_lines {
+            let (key, value) = match l.split_once(':') {
+                Some((k, v)) if !k.starts_with(char::is_whitespace) && !k.starts_with('-') => (format!("{k}: "), v.trim()),
+                _ => (String::new(), l.trim()),
+            };
+            if n > 0 && n + 1 < head_lines {
+                props.extend(matches_in(value, q, n + 1, &key, true));
+            }
+            continue;
+        }
+        let found = matches_in(&plain_line(l), q, n + 1, "", false);
+        body.extend(if found.is_empty() { matches_in(l.trim(), q, n + 1, "", false) } else { found });
+    }
+    if body.is_empty() { props } else { body }
 }
 
 /// Case-insensitive full-text search over names and contents. Name matches rank first, then by match count.
 /// ponytail: rescans every file per query; fine for hundreds of docs, add an FTS5 index if libraries get big.
 pub fn search(root: &Path, query: &str) -> Vec<Hit> {
-    let q = query.trim().to_lowercase();
+    let q = query.trim();
     if q.is_empty() {
         return vec![];
     }
+    let needle = folded(q);
+    let name_q = q.to_lowercase();
     let mut ids = vec![];
     fn flatten(nodes: Vec<Node>, out: &mut Vec<String>) {
         for n in nodes {
@@ -72,20 +180,21 @@ pub fn search(root: &Path, query: &str) -> Vec<Hit> {
         }
     }
     flatten(tree(root), &mut ids);
-    let mut hits: Vec<(bool, usize, Hit)> = ids
+    let mut hits: Vec<(bool, Hit)> = ids
         .into_iter()
         .filter_map(|id| {
             let text = fs::read_to_string(root.join(format!("{id}.md"))).unwrap_or_default();
-            let matching: Vec<&str> = text.lines().filter(|l| l.to_lowercase().contains(&q)).collect();
-            let in_name = id.to_lowercase().contains(&q);
-            (in_name || !matching.is_empty()).then(|| {
-                let lines = matching.iter().take(3).map(|l| l.trim().chars().take(160).collect()).collect();
-                (in_name, matching.len(), Hit { id, lines })
+            let mut matches = doc_matches(&text, &needle);
+            let in_name = id.to_lowercase().contains(&name_q);
+            (in_name || !matches.is_empty()).then(|| {
+                let total = matches.len();
+                matches.truncate(SHOWN_MATCHES);
+                (in_name, Hit { id, matches, total })
             })
         })
         .collect();
-    hits.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then_with(|| natural_cmp(&a.2.id, &b.2.id)));
-    hits.into_iter().take(50).map(|h| h.2).collect()
+    hits.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.total.cmp(&a.1.total)).then_with(|| natural_cmp(&a.1.id, &b.1.id)));
+    hits.into_iter().take(50).map(|h| h.1).collect()
 }
 
 /// Case-insensitive, numeric-aware: "2" < "10".
@@ -397,12 +506,14 @@ pub fn render(md: &str) -> String {
     o.extension.front_matter_delimiter = Some("---".into());
     o.extension.header_id_prefix = Some(String::new());
     o.render.r#unsafe = true;
+    // Lets a search result find the block its source line became.
+    o.render.sourcepos = true;
     let html = comrak::markdown_to_html(md, &o);
     ammonia::Builder::default()
         .add_tags(["input"])
         .add_tag_attributes("input", ["type", "checked", "disabled"])
         .add_tag_attributes("span", ["data-math-style"])
-        .add_generic_attributes(["class", "id"])
+        .add_generic_attributes(["class", "id", "data-sourcepos"])
         .attribute_filter(|_, attr, val| {
             if attr != "class" {
                 return Some(Cow::Borrowed(val));
@@ -417,6 +528,23 @@ pub fn render(md: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn searches_text_as_read() {
+        let q = |s: &str| folded(s);
+        let doc = "---\ntitle: \"Plan\"\ntags: [q4, status]\nstatus: draft\n---\n\n# Big plan\n\n- [ ] Read **the big** [docs](https://example.com/guide) now\nplan plan\n";
+        let m = doc_matches(doc, &q("the big docs"));
+        assert_eq!((m[0].line, m[0].before.as_str(), m[0].text.as_str(), m[0].after.as_str()), (9, "Read ", "the big docs", " now"));
+        let m = doc_matches(doc, &q("example.com"));
+        assert_eq!(m[0].line, 9, "link targets match as written");
+        assert_eq!(doc_matches(doc, &q("PLAN")).iter().map(|m| (m.line, m.nth)).collect::<Vec<_>>(), [(7, 0), (10, 0), (10, 1)], "body wins over properties");
+        let m = doc_matches(doc, &q("draft"));
+        assert!(m[0].properties && m[0].before == "status: " && m[0].line == 4, "property values match");
+        assert_eq!(doc_matches("---\nstatus: x\ntags: []\n---\nbody", &q("status")).len(), 0, "property names don't");
+        let long = format!("{} needle {}", "a".repeat(100), "b".repeat(200));
+        let m = doc_matches(&long, &q("needle"));
+        assert!(m[0].before.starts_with('…') && m[0].before.chars().count() <= 41 && m[0].after.ends_with('…'));
+    }
 
     #[test]
     fn natural_order() {
@@ -447,7 +575,9 @@ mod tests {
         fs::write(root.join("b.md"), "Alpha\nbeta GAMMA\ngamma again").unwrap();
         let hits = search(&root, "gamma");
         assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].lines, ["beta GAMMA", "gamma again"]);
+        let found: Vec<_> = hits[0].matches.iter().map(|m| (m.line, m.before.as_str(), m.text.as_str(), m.after.as_str())).collect();
+        assert_eq!(found, [(2, "beta ", "GAMMA", ""), (3, "", "gamma", " again")]);
+        assert_eq!(hits[0].total, 2);
         assert_eq!(search(&root, "standup")[0].id, "daily/standup", "name match");
         assert!(search(&root, "  ").is_empty());
         fs::remove_dir_all(dir).unwrap();
@@ -545,6 +675,7 @@ mod tests {
         assert!(!h.contains("<script") && !h.contains("onclick") && !h.contains("evil"), "{h}");
         assert!(h.contains(r#"class="math-x""#) && h.contains("language-rust") && h.contains(r#"id="hi-there""#), "{h}");
         assert!(h.contains(r#"data-math-style="inline""#), "{h}");
-        assert_eq!(render("---\ntitle: x\n---\n\nHi").trim(), "<p>Hi</p>", "properties aren't rendered");
+        let p = render("---\ntitle: x\n---\n\nHi");
+        assert!(!p.contains("title") && p.contains(r#"data-sourcepos="5:1-5:2""#), "properties aren't rendered, lines count from the top of the file: {p}");
     }
 }

@@ -11,7 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CommentsPanel, type Compose } from "@/components/CommentsPanel"
 import { DocHeader, type Mode } from "@/components/DocHeader"
-import { Editor } from "@/components/Editor"
+import { Editor, revealInEditor } from "@/components/Editor"
 import { FindBar } from "@/components/FindBar"
 import { HistoryPanel, VersionView, versionDate } from "@/components/History"
 import { NameDialog, type NameRequest } from "@/components/NameDialog"
@@ -20,9 +20,9 @@ import { ResizeHandle } from "@/components/ResizeHandle"
 import { SettingsPage } from "@/components/SettingsPage"
 import { Sidebar } from "@/components/Sidebar"
 import { Welcome } from "@/components/Welcome"
-import { api, type Comment, type Doc, type Location, type TreeNode } from "@/lib/api"
+import { api, type Comment, type Doc, type Location, type SearchMatch, type TreeNode } from "@/lib/api"
 import { docLink } from "@/lib/links"
-import { anchor, enhance, findText, headingEls, readHeadings, selectionAnchor, type Heading } from "@/lib/preview"
+import { anchor, enhance, findAll, findText, headingEls, locateMatch, readHeadings, selectionAnchor, type Heading } from "@/lib/preview"
 import { applySettings, DEFAULTS, loadSettings, saveSettings, type Settings } from "@/lib/settings"
 import { mod } from "@/lib/platform"
 import { addRecent, moveRecent, recentDocs } from "@/lib/recent"
@@ -71,6 +71,8 @@ export default function App() {
   const [editorView, setEditorView] = useState<EditorView | null>(null)
   // An earlier version being looked at, shown in place of the doc.
   const [viewing, setViewing] = useState<string | null>(null)
+  // A search match to show in the editor once it's mounted on that doc.
+  const [editorJump, setEditorJump] = useState<{ id: string; q: string; match: SearchMatch } | null>(null)
 
   const previewRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -240,14 +242,35 @@ export default function App() {
     if (r) scrollToRange(r)
   }
 
-  /** Opens a search result and marks the first match in the preview. */
-  const openSearchResult = async (id: string, q: string) => {
+  /** Opens a search result and goes to the match that was picked, in the preview and in the editor if showing. */
+  const openSearchResult = async (id: string, q: string, match: SearchMatch | null) => {
+    setViewing(null)
     await openDoc(id)
-    if (!q || S.current.doc !== id || S.current.mode === "markdown") return
-    const r = findText(previewRef.current!, q)
-    if (!r) return
-    CSS.highlights?.set("search", new Highlight(r))
-    scrollToRange(r)
+    CSS.highlights?.delete("search")
+    if (!q || S.current.doc !== id) return
+    if (match && S.current.mode !== "preview") setEditorJump({ id, q: match.text, match })
+    if (S.current.mode === "markdown") return
+    const mark = (r: Range) => {
+      CSS.highlights?.set("search", new Highlight(r))
+      scrollToRange(r)
+    }
+    if (match?.properties) {
+      // The properties card shows the value; it renders just after the doc opens.
+      scrollRef.current?.scrollTo({ top: 0 })
+      setTimeout(() => {
+        const card = scrollRef.current?.querySelector<HTMLElement>(".properties")
+        const r = card && findAll(card, match.text, false)[0]
+        if (r) CSS.highlights?.set("search", new Highlight(r))
+      }, 100)
+      return
+    }
+    if (!match) {
+      const r = findText(previewRef.current!, q)
+      return void (r && mark(r))
+    }
+    const { range, block } = locateMatch(previewRef.current!, S.current.draft, match.text, match.line, match.nth)
+    if (range) mark(range)
+    else block?.scrollIntoView({ behavior: "smooth", block: "center" })
   }
 
   const openLink = async (id: string, hash: string) => {
@@ -478,6 +501,12 @@ export default function App() {
   }
 
   const startNote = () => { setCompose({ kind: "new", quote: null, start: null }); openTab("comments") }
+
+  useEffect(() => {
+    if (!editorJump || !editorView?.dom.isConnected || S.current.doc !== editorJump.id || editorView.state.doc.toString() !== S.current.draft) return
+    revealInEditor(editorView, editorJump.match.line, editorJump.q, editorJump.match.nth)
+    setEditorJump(null)
+  }, [editorJump, editorView, draft])
 
   // ---------- Selection → floating Comment button ----------
 
@@ -732,7 +761,7 @@ export default function App() {
         </Button>
       )}
       <NameDialog req={nameReq} onClose={() => setNameReq(null)} />
-      <SearchDialog open={searchOpen} onOpenChange={setSearchOpen} tree={tree} onPick={openSearchResult} />
+      <SearchDialog open={searchOpen} onOpenChange={setSearchOpen} onPick={openSearchResult} />
     </div>
   )
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { getVersion } from "@tauri-apps/api/app"
 import { open } from "@tauri-apps/plugin-dialog"
-import { ArrowLeft, Check, ChevronsUpDown, FolderOpen, LayoutTemplate, Palette, RefreshCw } from "lucide-react"
+import { ArrowLeft, Check, ChevronsUpDown, FolderOpen, LayoutTemplate, Palette, RefreshCw, Search, X } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
@@ -9,6 +9,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
 import { api, type Location } from "@/lib/api"
+import { clearRecentSearches, recentSearches, removeRecentSearch } from "@/lib/recent"
 import { fontAvailable, listFonts, type Settings } from "@/lib/settings"
 import { cn } from "@/lib/utils"
 
@@ -27,6 +28,7 @@ const SECTIONS = [
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "storage", label: "Docs folder", icon: FolderOpen },
   { id: "templates", label: "Templates", icon: LayoutTemplate },
+  { id: "search", label: "Search", icon: Search },
   { id: "updates", label: "Updates", icon: RefreshCw },
 ] as const
 
@@ -157,6 +159,7 @@ export function SettingsPage({ settings, onChange, onClose, location, onDocsFold
             </section>
           )}
           {section === "templates" && <TemplatesSection />}
+          {section === "search" && <SearchSection />}
           {section === "updates" && (
             <section className="mt-6">
               <h2 className="text-sm font-medium text-muted-foreground">Updates</h2>
@@ -210,6 +213,31 @@ function TemplatesSection() {
           Saving a doc keeps its <code className="font-mono text-foreground">updated</code> date current. Use “Save as template…” in a doc’s ⋯ menu to turn it into a template.
         </p>
       </div>
+    </section>
+  )
+}
+
+/** Past search terms, which the search popup offers before you type. */
+function SearchSection() {
+  const [terms, setTerms] = useState(recentSearches)
+  return (
+    <section className="mt-6">
+      <h2 className="text-sm font-medium text-muted-foreground">Search</h2>
+      <Row title="Recent searches" description="Shown in the search popup before you type. They’re kept on this computer only, and aren’t stored in your docs folder.">
+        <Button variant="outline" className="shrink-0" disabled={!terms.length} onClick={() => setTerms(clearRecentSearches())}>Clear all</Button>
+      </Row>
+      {terms.length ? (
+        <ul className="mt-2 grid gap-0.5">
+          {terms.map((t) => (
+            <li key={t} className="flex items-center gap-2 rounded-md py-1 pr-1 pl-2 text-sm hover:bg-foreground/[0.05]">
+              <span className="min-w-0 flex-1 truncate select-text">{t}</span>
+              <Button variant="ghost" size="icon-xs" aria-label={`Remove “${t}”`} title="Remove" onClick={() => setTerms(removeRecentSearch(t))}><X /></Button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2 text-sm text-muted-foreground">No recent searches.</p>
+      )}
     </section>
   )
 }
