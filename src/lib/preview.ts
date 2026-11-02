@@ -61,6 +61,27 @@ export async function enhance(root: HTMLElement, isCurrent: () => boolean, doc: 
   }
 }
 
+/**
+ * The preview's images and Mermaid diagrams in reading order, for the image viewer. Images inside links are left
+ * out (clicking them follows the link). Diagrams become standalone SVG data URLs sized from their viewBox.
+ */
+export function viewerImages(root: HTMLElement) {
+  const els = [...root.querySelectorAll<Element>("img, .mermaid > svg")].filter((el) => !el.closest("a[href]"))
+  const images = els.map((el) => {
+    if (el instanceof HTMLImageElement) {
+      const name = decodeURIComponent((el.getAttribute("src") ?? "").split(/[?#]/)[0].split("/").pop() ?? "")
+      return { src: el.currentSrc || el.src, alt: el.alt || name }
+    }
+    const svg = el.cloneNode(true) as SVGSVGElement
+    const vb = svg.viewBox.baseVal
+    if (vb?.width) (svg.setAttribute("width", String(vb.width)), svg.setAttribute("height", String(vb.height)))
+    svg.removeAttribute("style")
+    svg.setAttribute("xmlns", "http://www.w3.org/2000/svg")
+    return { src: "data:image/svg+xml;charset=utf-8," + encodeURIComponent(new XMLSerializer().serializeToString(svg)), alt: "", diagram: true }
+  })
+  return { els, images }
+}
+
 export type Heading = { id: string; text: string; level: number }
 
 export const headingEls = (root: HTMLElement) =>
